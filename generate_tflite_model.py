@@ -3,7 +3,7 @@ import sys
 import os
 import tensorflow as tf
 import json
-from cv2 import cv2
+import cv2
 import datasets
 from models import AlphaLaneModel
 

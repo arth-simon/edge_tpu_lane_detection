@@ -9,7 +9,7 @@ import numpy as np
 import math
 import tensorflow as tf
 from PIL import Image
-from cv2 import cv2
+import cv2
 from scipy.interpolate import interp1d
 
 class TusimpleLane(tf.data.Dataset):
