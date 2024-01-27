@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import datetime
 import json
-from cv2 import cv2
+import cv2
 import datasets
 from models import AlphaLaneModel
 from losses import LaneLoss
@@ -25,17 +25,17 @@ if __name__ == '__main__':
     
 
     # enable memory growth to prevent out of memory when training
-    physical_devices = tf.config.experimental.list_physical_devices('GPU')
-    assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
-    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+    # physical_devices = tf.config.experimental.list_physical_devices('GPU')
+    # assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
+    # tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 
     # set path of training data
-    train_dataset_path = "/home/dana/Datasets/ML/TuSimple/train_set"
+    train_dataset_path = "/mnt/c/Users/inf21034/source/IMG_ROOTS/TUSIMPLEROOT/TUSimple/train_set"
     train_label_set = ["label_data_0313.json",
                        "label_data_0531.json",
                        "label_data_0601.json"]
-    test_dataset_path = "/home/dana/Datasets/ML/TuSimple/test_set"
+    test_dataset_path = "/mnt/c/Users/inf21034/source/IMG_ROOTS/TUSIMPLEROOT/TUSimple/test_set"
     test_label_set = ["test_label.json"]
 
     # create dataset

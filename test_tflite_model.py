@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
 import json
-from cv2 import cv2
+import cv2
 import datasets
 import math
 
