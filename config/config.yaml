@@ -2,6 +2,6 @@
 model_config_path: 'config/cvat_config.json'
 
 # Topics for an example publisher and subscriber
-camera_image_subscriber: '/camera/undistorted'
+camera_image_subscriber: '/camera/birds_eye'
 debug_image_publisher: '/lane_detection/debug_image'
 result_publisher: '/lane_detection/result'
