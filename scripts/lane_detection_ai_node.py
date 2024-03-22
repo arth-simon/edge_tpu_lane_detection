@@ -3,7 +3,7 @@ import os
 from contextlib import suppress
 
 import cv2
-import lane_detection_ai.msg
+import edge_tpu_lane_detection.msg
 import numpy as np
 import rospkg
 from edge_ai_Lanedetection.edge_tpu_inference import EdgeTPUInference
@@ -33,7 +33,7 @@ class LaneDetectionAiNode(node_base.NodeBase):
         # Initialise param object to itself so that IDE will suggest it. Keep in mind, that the parameters
         # itself are not known to IDE and therefore won't show up in the autocompletion.
         self.param = self.param
-        self.package_path = rospkg.RosPack().get_path('lane_detection_ai')
+        self.package_path = rospkg.RosPack().get_path('edge_tpu_lane_detection')
 
         self.cv_bridge = cv_bridge.CvBridge()
         self.coord_trans = CoordinateTransform()
@@ -50,7 +50,7 @@ class LaneDetectionAiNode(node_base.NodeBase):
 
         self.result_publisher = rospy.Publisher(
             self.param.result_publisher,
-            lane_detection_ai.msg.LaneDetectionResult,
+            edge_tpu_lane_detection.msg.LaneDetectionResult,
             queue_size=1
         )
 

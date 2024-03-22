@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(lane_detection_ai)
+project(edge_tpu_lane_detection)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)

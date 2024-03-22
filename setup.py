@@ -4,7 +4,7 @@ from catkin_pkg.python_setup import generate_distutils_setup
 
 # fetch values from package.xml
 setup_args = generate_distutils_setup(
-    packages=['lane_detection_ai'],
+    packages=['edge_tpu_lane_detection'],
     package_dir={'': 'src'},
 )
 setup(**setup_args)

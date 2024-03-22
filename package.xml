@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>lane_detection_ai</name>
+  <name>edge_tpu_lane_detection</name>
   <version>1.0.0</version>
-  <description>The lane_detection_ai package</description>
+  <description>The edge_tpu_lane_detection package</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
   <!-- Example:  -->
