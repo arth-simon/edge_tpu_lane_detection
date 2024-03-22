@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- Smartrollerz launch script for lane_detection_ai package -->
+
+<launch>
+    <arg name="debug" default="false" />
+
+    <!-- Launch lane detection ai node -->
+    <node pkg="lane_detection_ai" type="lane_detection_ai_node.py" output="screen" ns="lane_detection_ai" name="lane_detection_ai_node">
+        <!-- Load parameters from config in the yaml files -->
+        <rosparam file="$(find lane_detection_ai)/config/config.yaml" command="load" />
+
+        <!-- Pass parameters from arguments -->
+        <param name="debug" value="$(arg debug)" />
+    </node>
+</launch>

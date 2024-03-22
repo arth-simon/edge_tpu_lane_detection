@@ -1,0 +1,6 @@
+addict
+opencv-python
+numpy
+rospy
+torch
+torchvision
