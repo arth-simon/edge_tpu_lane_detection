@@ -1,170 +1,118 @@
-import tensorflow as tf
-import time
-import os
-import json
-import sys
-import itertools
-import random
-import numpy as np
-import math
-from PIL import Image
-import cv2
-import xml.etree.ElementTree as ET
-from scipy.interpolate import interp1d
-import datasets.cvat_dataset
+"""cvat_dataset dataset."""
+
 import tensorflow_datasets as tfds
+import tensorflow as tf
+import json
+from PIL import Image
+import numpy as np
+import sys
+import cv2
+import os
+import math
+import matplotlib.pyplot as plt
 
+cnt_unique = 0
 
-class TusimpleLane:
+imagecnt = 0
+class Builder(tfds.core.GeneratorBasedBuilder):
+    """DatasetBuilder for cvat_dataset dataset."""
 
-    # ----------------------------------------------------------------------------------------
-    def __init__(self,
-                 dataset_path,
-                 label_set,
-                 config,
-                 augmentation=False):
-        if not os.path.exists(dataset_path):
-            print("File doesn't exist, path : ", dataset_path)
-            exit()
+    VERSION = tfds.core.Version('1.4.5')
+    RELEASE_NOTES = {
+        '1.4.5': 'Potential fix for test set',
+    }
 
-        # get data from config
+    DRIVE = "C:" if os.name == "nt" else "/mnt/c"
+    def _info(self) -> tfds.core.DatasetInfo:
+        """Returns the dataset metadata."""
+        return self.dataset_info_from_configs(
+            # builder=self,
+
+            description="CVat Lane Dataset",
+
+            features=tfds.features.FeaturesDict({
+                "image": tfds.features.Tensor(dtype=tf.float32, shape=(None, None, 3), encoding="bytes"),
+                "label": tfds.features.Sequence(
+                    tfds.features.Tensor(shape=(None, None), dtype=tf.float32, encoding="bytes")),
+                # "h_samples": tfds.features.Sequence(tfds.features.Tensor(shape=(None,), dtype=tf.int32)),
+                # "augmentation_index": tf.int32,
+            }),
+            supervised_keys=("image", "label"),
+        )
+
+    def _split_generators(self, dl_manager: tfds.download.DownloadManager):
+        """Returns SplitGenerators."""
+        path = f"{self.DRIVE}/Users/inf21034/source/IMG_ROOTS/1280x960_CVATROOT/"
+        return {
+            'train': self._generate_examples(os.path.join(path, "train_set"),
+                                             'train_set.json',
+                                             [0.0, -15.0, 15.0, -30.0, 30.0]),
+            'test': self._generate_examples(os.path.join(path, "test_set"), 'test_set.json', None),
+        }
+
+    def _generate_examples(self, path, label_data_name, augmentation_deg):
+        """Yields examples."""
+        # DONE(cvat_dataset): Yields (key, example) tuples from the dataset
+        global cnt_unique
+        with open(
+                f"{self.DRIVE}/Users/inf21034/PycharmProjects/edge_tpu_lane_detection/add_ins/cvat_config2.json") as json_file:
+            config = json.load(json_file)
+        net_input_img_size = config["model_info"]["input_image_size"]
         x_anchors = config["model_info"]["x_anchors"]
         y_anchors = config["model_info"]["y_anchors"]
         max_lane_count = config["model_info"]["max_lane_count"]
         ground_img_size = config["model_info"]["input_image_size"]
-
-        # build map
-        augmentation_deg = None
-        if augmentation:
-            augmentation_deg = [0.0, -15.0, 15.0, -30.0, 30.0]
-        else:
-            augmentation_deg = [0.0]
         dates = list(config["perspective_info"].keys())
         perspective_infos = {}
         for date in dates:
             H_list, map_x_list, map_y_list = create_map(config, date, augmentation_deg=augmentation_deg)
-            # H_list = tf.constant(H_list)
-            # map_x_list = tf.constant(map_x_list)
-            # map_y_list = tf.constant(map_y_list)
+            H_list = tf.constant(H_list)
+            map_x_list = tf.constant(map_x_list)
+            map_y_list = tf.constant(map_y_list)
             perspective_infos[date] = (H_list, map_x_list, map_y_list)
 
-        # pipe = [tf.data.Dataset.from_tensors(i) for i in self._data_reader(dataset_path, label_set[0], augmentation_deg)][0]
-        # pipe = tf.data.Dataset.from_tensor_slices(label_set, "CVAT")
-        # print(list(pipe.as_numpy_iterator()))
-        # pipe = tf.data.Dataset.from_tensor_slices(pipe.as_numpy_iterator(), "CVAT")
-        # pipe = tf.data.Dataset.from_generator(self._data_reader,
-        #                                        output_types=(tf.dtypes.uint8,
-        #                                                      tf.dtypes.int32,
-        #                                                      tf.dtypes.int32,
-        #                                                      tf.dtypes.int32),
-        #                                        output_shapes=((None),
-        #                                                       (None),
-        #                                                       (None),
-        #                                                       (None)),
-        #                                        args=(dataset_path,
-        #                                              label_set[0],
-        #                                              augmentation_deg)
-        #                                        )
-        # build dataset
-        label_set = tf.data.Dataset.from_tensor_slices(label_set)
-        pipe = label_set.interleave(
-            lambda label_file_name: tf.data.Dataset.from_generator(_data_reader,
-                                                                   output_types=(tf.dtypes.uint8,
-                                                                                 tf.dtypes.int32,
-                                                                                 tf.dtypes.int32,
-                                                                                 tf.dtypes.int32),
-                                                                   output_shapes=(None,
-                                                                                  None,
-                                                                                  None,
-                                                                                  None),
-                                                                   args=(dataset_path,
-                                                                         label_file_name,
-                                                                         augmentation_deg,
-                                                                         x_anchors,
-                                                                         y_anchors,
-                                                                         ground_img_size,
-                                                                         perspective_infos,
-                                                                         max_lane_count)
-                                                                   )
-        )
 
-        pipe = pipe.map(
-            # convert data to training label and norimalization
-            lambda image, label_lanes, label_h_samples, refIdx:
-            tf.numpy_function(func=_map_projection_data_generator,
-                              inp=[image,
-                                   label_lanes,
-                                   label_h_samples,
-                                   x_anchors,
-                                   y_anchors,
-                                   max_lane_count,
-                                   H_list[refIdx],
-                                   map_x_list[refIdx],
-                                   map_y_list[refIdx],
-                                   ground_img_size],
-                              Tout=[tf.dtypes.float32,
-                                    tf.dtypes.float32])
-            ,
-            num_parallel_calls=tf.data.experimental.AUTOTUNE
-        )
+        for image_ary, label_lanes, label_h_samples, refIdx, day_of_recording in _data_reader(path, label_data_name,
+                                                                            augmentation_deg):
+            # Generate a unique key for each example
 
-        pipe = pipe.prefetch(  # Overlap producer and consumer works
-            tf.data.experimental.AUTOTUNE
-        )
-        self.pipe = pipe
-
-    def get_pipe(self):
-        return self.pipe
-
-    # ----------------------------------------------------------------------------------------
-
-
-def _data_reader_cvat(dataset_path: str,
-                      label_data_name: str,
-                      augmentation_deg: float,
-                      ground_img_size: int,
-                      tranformation_params):
-    print("Load data from ", dataset_path, label_data_name)
-    label_data_path = os.path.join(dataset_path, label_data_name)
-    if not os.path.exists(label_data_path):
-        print("Label file doesn't exist, path : ", label_data_path)
-        sys.exit(0)
-
-    tree = ET.parse(label_data_path)
-    root = tree.getroot()
-
-    for image in root.findall('image'):
-        y_coordinates = []
-        x_coordinates = []
-
-        image_path = str(os.path.join(str(dataset_path, 'utf-8'), str(image.attrib['name'])))
-        with Image.open(image_path) as img:
-            image_ary = np.asarray(img)
-        for polyline in image.findall('polyline'):
-            points = polyline.attrib['points'].split(";")
-            for point in points:
-                point = point.split(',')
-                x_coordinates.append(int(point[0]))
-                y_coordinates.append(int(point[1]))
-
-        if augmentation_deg is None:
-            yield image_ary, x_coordinates, y_coordinates, 0
-        else:
-            for refIdx in range(len(augmentation_deg)):
-                yield _map_projection_data_generator(image_ary, x_coordinates, y_coordinates, refIdx)
-                yield image_ary, x_coordinates, y_coordinates, refIdx
-
-    # load data
+            # if "12" not in day_of_recording:
+            #     continue
+            # if "2023-10-02" not in day_of_recording and "test" not in label_data_name:
+            #     continue
+            key = cnt_unique
+            cnt_unique += 1
+            H_list, map_x_list, map_y_list = perspective_infos[day_of_recording]
+            cutoffs = config["perspective_info"][day_of_recording]["cutoffs"]
+            img, label = _map_projection_data_generator(image_ary,
+                                                        label_lanes,
+                                                        label_h_samples,
+                                                        net_input_img_size,
+                                                        x_anchors,
+                                                        y_anchors,
+                                                        max_lane_count,
+                                                        H_list[refIdx],
+                                                        map_x_list[refIdx],
+                                                        map_y_list[refIdx],
+                                                        ground_img_size,
+                                                        cutoffs
+                                                        )
+            if img is None or label is None:
+                continue
+            yield key, {
+                "image": img,
+                "label": label,
+            }
+        # for f in path.glob('*.jpeg'):
+        #   yield 'key', {
+        #       'image': f,
+        #       'label': 'yes',
+        #   }
 
 
 def _data_reader(dataset_path,
-                 label_data_name: str,
-                 augmentation_deg: list,
-                 x_anchors: int,
-                 y_anchors: int,
-                 ground_img_size: list,
-                 tranformation_params,
-                 max_lane_count: int):
+                 label_data_name,
+                 augmentation_deg):
     print("Load data from ", dataset_path, label_data_name)
     label_data_path = os.path.join(dataset_path, label_data_name)
     if not os.path.exists(label_data_path):
@@ -177,7 +125,8 @@ def _data_reader(dataset_path,
     with open(label_data_path, 'r') as reader:
         for line in reader.readlines():
             raw_label = json.loads(line)
-            image_path = os.path.join(str(dataset_path, 'utf-8'), raw_label["raw_file"])
+            image_path = os.path.join(str(dataset_path), raw_label["raw_file"])
+            day_of_recording = raw_label["raw_file"][0:10]
             label_lanes = raw_label["lanes"]
             label_h_samples = raw_label["h_samples"]
 
@@ -185,32 +134,16 @@ def _data_reader(dataset_path,
             with Image.open(image_path) as image:
                 image_ary = np.asarray(image)
 
+            # enable this for small dataset test
+            # if count >=32:
+            #     break
             count += 1
 
-            H, map_x, map_y = tranformation_params[raw_label["raw_file"][0:10]]
             if augmentation_deg is None:
-                yield _map_projection_data_generator(image_ary,
-                                                     label_lanes,
-                                                     label_h_samples,
-                                                     x_anchors,
-                                                     y_anchors,
-                                                     max_lane_count,
-                                                     H[0],
-                                                     map_x[0],
-                                                     map_y[0],
-                                                     ground_img_size,)
+                yield image_ary, label_lanes, label_h_samples, 0, day_of_recording
             else:
                 for refIdx in range(len(augmentation_deg)):
-                    yield _map_projection_data_generator(image_ary,
-                                                         label_lanes,
-                                                         label_h_samples,
-                                                         x_anchors,
-                                                         y_anchors,
-                                                         max_lane_count,
-                                                         H[refIdx],
-                                                         map_x[refIdx],
-                                                         map_y[refIdx],
-                                                         ground_img_size,)
+                    yield image_ary, label_lanes, label_h_samples, refIdx, day_of_recording
 
 
 def create_map(config, day_of_recording: str,
