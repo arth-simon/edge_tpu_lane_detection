@@ -6,7 +6,7 @@
     <arg name="debug" default="false" />
 
     <!-- Launch lane detection ai node -->
-    <node pkg="edge_tpu_lane_detection" type="lane_detection_ai_node.py" output="screen" ns="edge_tpu_lane_detection" name="edge_tpu_lane_detection">
+    <node pkg="edge_tpu_lane_detection" type="lane_detection_ai_node.py" output="screen" ns="edge_tpu_lane_detection" name="lane_detection_ai_node">
         <!-- Load parameters from config in the yaml files -->
         <rosparam file="$(find edge_tpu_lane_detection)/config/config.yaml" command="load" />
 
