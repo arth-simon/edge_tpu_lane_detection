@@ -32,6 +32,7 @@ if __name__ == '__main__':
     assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
+
     # set path of training data
     train_dataset_path = "/mnt/c/Users/inf21034/source/IMG_ROOTS/1280x960_CVATROOT/train_set"
     # "/mnt/c/Users/inf21034/source/IMG_ROOTS/TUSIMPLEROOT/TUSimple"
