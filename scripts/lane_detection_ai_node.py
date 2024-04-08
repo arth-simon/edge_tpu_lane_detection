@@ -161,6 +161,7 @@ class LaneDetectionAiNode(node_base.NodeBase):
                     debug_image = camera_image
                     if len(result[0]) > 0:
                         for coord in result[0]:
+                            print(coord)
                             cv2.circle(debug_image, coord, 5, (255, 0, 0), -1)
                     if len(result[1]) > 0:
                         for coord in result[1]:
