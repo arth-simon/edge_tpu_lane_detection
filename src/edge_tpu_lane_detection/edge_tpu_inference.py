@@ -157,7 +157,6 @@ class EdgeTPUInference:
                     instance_prob = sum_of_instance_row[0, dy, instanceIdx]
                     gx = mean_of_x_axis[0, dy, instanceIdx]
                     gy = mean_of_y_axis[0, dy, instanceIdx]
-
                     if instance_prob > 0.5:
                         current_lane.append(self.prediction_to_coordinates((gx, gy)))
                 lanes.append(current_lane)
@@ -167,6 +166,7 @@ class EdgeTPUInference:
         """
         Transform back labels and to the disired format
         """
+        print(label)
         xl, xr, yu, yd = self.roi
         roi_width = xr - xl
         roi_height = yd - yu
