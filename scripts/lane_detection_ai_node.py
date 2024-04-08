@@ -40,9 +40,7 @@ class LaneDetectionAiNode(node_base.NodeBase):
         self.birds_eyed = BirdseyedviewTransformation()
         print(os.path.join(self.package_path, self.param.model_config_path))
         self.model = EdgeTPUInference(self.package_path,
-                                          os.path.join(self.package_path, self.param.model_config_path))
-
-
+                                      os.path.join(self.package_path, self.param.model_config_path))
 
         # Don't pass any parameter if no function should be called periodically.
         # This way it is in a spinning mode.
@@ -106,77 +104,28 @@ class LaneDetectionAiNode(node_base.NodeBase):
         # # Get result
         with Timer(name="prediction", filter_strength=40):
             result = self.model.predict(camera_image)
+        print(result)
 
+        with Timer(name="debug_image", filter_strength=40):
+            if self.param.debug:
+                debug_image = camera_image
+                if len(result[0]) > 0:
+                    for coord in result[0]:
+                        cv2.circle(debug_image, coord, 5, (255, 0, 0), -1)
+                if len(result[1]) > 0:
+                    for coord in result[1]:
+                        cv2.circle(debug_image, coord, 5, (0, 255, 0), -1)
+                if len(result[2]) > 0:
+                    for coord in result[2]:
+                        cv2.circle(debug_image, coord, 5, (0, 0, 255), -1)
 
+                # # Draw the trajectories
+                # self._draw_trajectory(debug_image, driving_lane_left_coeff)
+                # self._draw_trajectory(debug_image, driving_lane_right_coeff)
 
-
-        # with Timer(name="polyfit", filter_strength=40):
-            # # Fit lane to a polynomial function of 2nd degree. In our representation of the polynomial function,
-            # # the x and y are swapped: x = a * y² + b * y + c
-            # left_lane_coeff = None
-            # center_lane_coeff = None
-            # right_lane_coeff = None
-            # if len(left_lane) > 0:
-            #     left_lane_coeff = np.asarray(np.polyfit(left_lane.T[1], left_lane.T[0], 2))
-            # if len(center_lane) > 0:
-            #     center_lane_coeff = np.asarray(np.polyfit(center_lane.T[1], center_lane.T[0], 2))
-            # if len(right_lane) > 0:
-            #     right_lane_coeff = np.asarray(np.polyfit(right_lane.T[1], right_lane.T[0], 2))
-            #
-            # # Build the two driving lanes (left and right) from the center lane and the left/right lane
-            # driving_lane_left_coeff = [0, 0, 0]
-            # driving_lane_right_coeff = [0, 0, 0]
-
-            # if right_lane_coeff is not None and center_lane_coeff is not None:
-            #     driving_lane_right_coeff = np.average([right_lane_coeff, center_lane_coeff], axis=0)
-            # if center_lane_coeff is not None and left_lane_coeff is not None:
-            #     driving_lane_left_coeff = np.average([center_lane_coeff, left_lane_coeff], axis=0)
-
-        # # Check if this node is still active before publishing results
-        # if self.param.active:
-        #     # Generate vec3 arrays for the output message
-        #     left_lane_vec3s = [geometry_msgs.msg.Vector3(x=coord[0], y=coord[1], z=coord[2]) for coord in left_lane]
-        #     center_lane_vec3s = [geometry_msgs.msg.Vector3(x=coord[0], y=coord[1], z=coord[2]) for coord in center_lane]
-        #     right_lane_vec3s = [geometry_msgs.msg.Vector3(x=coord[0], y=coord[1], z=coord[2]) for coord in right_lane]
-        #
-        #     # Publish result
-        #     rospy.logdebug(f"Driving lane left: {driving_lane_left_coeff}")
-        #     rospy.logdebug(f"Driving lane right: {driving_lane_right_coeff}")
-        #     self.result_publisher.publish(
-        #         lane_detection_ai.msg.LaneDetectionResult(
-        #             left=lane_detection_ai.msg.Lane(left_lane_vec3s, len(left_lane_vec3s) > 0),
-        #             center=lane_detection_ai.msg.Lane(center_lane_vec3s, len(center_lane_vec3s) > 0),
-        #             right=lane_detection_ai.msg.Lane(right_lane_vec3s, len(right_lane_vec3s) > 0),
-        #             trajectory_left=geometry_msgs.msg.Vector3(x=driving_lane_left_coeff[0],
-        #                                                       y=driving_lane_left_coeff[1],
-        #                                                       z=driving_lane_left_coeff[2]),
-        #             trajectory_right=geometry_msgs.msg.Vector3(x=driving_lane_right_coeff[0],
-        #                                                        y=driving_lane_right_coeff[1],
-        #                                                        z=driving_lane_right_coeff[2]),
-        #         )
-        #     )
-
-            with Timer(name="debug_image", filter_strength=40):
-                if self.param.debug:
-                    debug_image = camera_image
-                    if len(result[0]) > 0:
-                        for coord in result[0]:
-                            print(coord)
-                            cv2.circle(debug_image, coord, 5, (255, 0, 0), -1)
-                    if len(result[1]) > 0:
-                        for coord in result[1]:
-                            cv2.circle(debug_image, coord, 5, (0, 255, 0), -1)
-                    if len(result[2]) > 0:
-                        for coord in result[2]:
-                            cv2.circle(debug_image, coord, 5, (0, 0, 255), -1)
-
-                    # # Draw the trajectories
-                    # self._draw_trajectory(debug_image, driving_lane_left_coeff)
-                    # self._draw_trajectory(debug_image, driving_lane_right_coeff)
-
-                    self.debug_image_publisher.publish(
-                        self.cv_bridge.cv2_to_imgmsg(debug_image, encoding='rgb8')
-                    )
+                self.debug_image_publisher.publish(
+                    self.cv_bridge.cv2_to_imgmsg(debug_image, encoding='rgb8')
+                )
 
         timer.stop()
         timer.print()
