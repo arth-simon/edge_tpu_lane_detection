@@ -38,8 +38,11 @@ class LaneDetectionAiNode(node_base.NodeBase):
         self.cv_bridge = cv_bridge.CvBridge()
         self.coord_trans = CoordinateTransform()
         self.birds_eyed = BirdseyedviewTransformation()
+        print(os.path.join(self.package_path, self.param.model_config_path))
         self.model = EdgeTPUInference(self.package_path,
                                           os.path.join(self.package_path, self.param.model_config_path))
+
+
 
         # Don't pass any parameter if no function should be called periodically.
         # This way it is in a spinning mode.
