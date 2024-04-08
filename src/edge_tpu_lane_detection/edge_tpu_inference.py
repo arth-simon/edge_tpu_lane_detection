@@ -62,8 +62,8 @@ class EdgeTPUInference:
             image_prep = np.uint8(image_prep * 255)
         # else:
         #     image_prep = image_prep.astype(np.float32) / 255.0
-
-        self.interpreter.set_tensor(self.input_details[0]['index'], image_prep)
+        correctly_dimensioned_im = np.expand_dims(image_prep, axis=0)
+        self.interpreter.set_tensor(self.input_details[0]['index'], correctly_dimensioned_im)
         self.interpreter.invoke()
 
         instance = self.interpreter.get_tensor(self.output_details[0]["index"])
