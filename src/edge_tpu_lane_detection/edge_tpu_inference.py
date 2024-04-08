@@ -25,7 +25,7 @@ class EdgeTPUInference:
         # self.interpreter = tf.lite.Interpreter(model_path=str(tflite_model_quant_file),
         #                                   experimental_delegates=[tf.lite.experimental.load_delegate(
         #                                       "edgetpu.dll")])
-        self.interpreter = Interpreter(model_path=str("models/" + self.config["model_info"]["tflite_model_name"]),
+        self.interpreter = Interpreter(model_path=os.path.join(base_path, "models", self.config["model_info"]["tflite_model_name"]),
                                        experimental_delegates=[load_delegate('libedgetpu.so.1')])
         self.interpreter.allocate_tensors()
 
