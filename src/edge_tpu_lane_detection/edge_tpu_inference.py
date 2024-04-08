@@ -59,11 +59,11 @@ class EdgeTPUInference:
         image_prep = self.preprocess_image(image)
 
         if self.input_details[0]['dtype'] == np.uint8:
-            input_data = np.uint8(image_prep * 255)
-        else:
-            input_data = image_prep.astype(np.float32) / 255.0
+            image_prep = np.uint8(image_prep * 255)
+        # else:
+        #     image_prep = image_prep.astype(np.float32) / 255.0
 
-        self.interpreter.set_tensor(self.input_details[0]['index'], [input_data])
+        self.interpreter.set_tensor(self.input_details[0]['index'], image_prep)
         self.interpreter.invoke()
 
         instance = self.interpreter.get_tensor(self.output_details[0]["index"])
@@ -157,7 +157,6 @@ class EdgeTPUInference:
                     gx = mean_of_x_axis[0, dy, instanceIdx]
                     gy = mean_of_y_axis[0, dy, instanceIdx]
 
-                    print(f"GY: {gy}, GX: {gx}")
                     if instance_prob > 0.5:
                         lanes[f"{instanceIdx}"].append(self.prediction_to_coordinates((gx, gy)))
 
