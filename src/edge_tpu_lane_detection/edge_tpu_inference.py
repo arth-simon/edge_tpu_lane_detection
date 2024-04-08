@@ -19,7 +19,7 @@ class EdgeTPUInference:
         self.debug = debug
         self.post_process = post_process
 
-        self.original_shape = [0, 0]
+        self.original_shape: list[int] | None = None
 
         # Load the model onto the Edge TPU
         # self.interpreter = tf.lite.Interpreter(model_path=str(tflite_model_quant_file),
@@ -34,7 +34,6 @@ class EdgeTPUInference:
         self.output_details = self.interpreter.get_output_details()
         self.input_size = self.input_details[0]['shape'][1:3]
         self.roi = self.config["perspective_info"]["cutoffs"]
-        self.original_shape = [0, 0]
 
         _, _, _, self.max_instance_count = self.interpreter.get_output_details()[0]['shape']
         _, self.y_anchors, self.x_anchors, _ = self.interpreter.get_output_details()[0]['shape']
@@ -46,7 +45,7 @@ class EdgeTPUInference:
         """
         # mach des hier gerne
         # cutoffs is list with 4 values: x1, y1, x2, y2
-        if 0 in self.original_shape:
+        if self.original_shape is None:
             self.original_shape = image.shape
         xl, xr, yu, yd = self.roi
 
@@ -170,6 +169,7 @@ class EdgeTPUInference:
         xl, xr, yu, yd = self.roi
         roi_width = xr - xl
         roi_height = yd - yu
+        print(f"Original shape: {self.original_shape}")
         original_height, original_width = self.original_shape
         if xl < label[0] < xr and yu < label[1] < yd:
             label = (label[0] - xl, label[1] - yu)
