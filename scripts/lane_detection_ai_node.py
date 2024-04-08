@@ -90,7 +90,7 @@ class LaneDetectionAiNode(node_base.NodeBase):
 
     def camera_image_cb(self, camera_image_msg: sensor_msgs.msg.Image):
         """Receives new camera image as a callback function from ROS."""
-
+        print("Received image")
         # Do not proceed if the node is not set to be active.
         if not self.param.active:
             return
