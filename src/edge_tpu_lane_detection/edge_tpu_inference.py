@@ -170,7 +170,7 @@ class EdgeTPUInference:
         roi_width = xr - xl
         roi_height = yd - yu
         print(f"Original shape: {self.original_shape}")
-        original_height, original_width = self.original_shape
+        original_height, original_width, _ = self.original_shape
         if xl < label[0] < xr and yu < label[1] < yd:
             label = (label[0] - xl, label[1] - yu)
         label = (label[0] * original_width // roi_width,
