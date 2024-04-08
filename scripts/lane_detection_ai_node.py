@@ -106,9 +106,9 @@ class LaneDetectionAiNode(node_base.NodeBase):
         # # Get result
         with Timer(name="prediction", filter_strength=40):
             result = self.model.predict(camera_image)
-        #     left_lane = self.coord_trans.camera_to_world(result[0]) if result[0] is not None else np.asarray([])
-        #     center_lane = self.coord_trans.camera_to_world(result[1]) if result[1] is not None else np.asarray([])
-        #     right_lane = self.coord_trans.camera_to_world(result[2]) if result[2] is not None else np.asarray([])
+
+
+
 
         # with Timer(name="polyfit", filter_strength=40):
             # # Fit lane to a polynomial function of 2nd degree. In our representation of the polynomial function,
@@ -160,13 +160,13 @@ class LaneDetectionAiNode(node_base.NodeBase):
                 if self.param.debug:
                     debug_image = camera_image
                     if len(result[0]) > 0:
-                        for coord in result[0].astype(int):
+                        for coord in result[0]:
                             cv2.circle(debug_image, coord, 5, (255, 0, 0), -1)
                     if len(result[1]) > 0:
-                        for coord in result[1].astype(int):
+                        for coord in result[1]:
                             cv2.circle(debug_image, coord, 5, (0, 255, 0), -1)
                     if len(result[2]) > 0:
-                        for coord in result[2].astype(int):
+                        for coord in result[2]:
                             cv2.circle(debug_image, coord, 5, (0, 0, 255), -1)
 
                     # # Draw the trajectories

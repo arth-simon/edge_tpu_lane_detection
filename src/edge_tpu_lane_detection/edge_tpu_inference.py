@@ -83,6 +83,8 @@ class EdgeTPUInference:
         # check which lane is left, center or right by checking each first coordinate and sorting from low to high
         lanes_list = sorted(lanes_list, key=lambda x: x[0][0])
 
+        return lanes_list
+
     def postprocess(self, instance, offsets, anchor_axis):
         COLORS = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
         lanes = {}
@@ -173,7 +175,7 @@ class EdgeTPUInference:
             label = (label[0] - xl, label[1] - yu)
         label = (label[0] * original_width // roi_width,
                  label[1] * original_width // roi_height)
-        yield label
+        return label
 
 
 def tflite_image_test(tflite_model_quant_file, folder_path, with_post_process=True):
