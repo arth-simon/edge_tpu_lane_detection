@@ -74,7 +74,7 @@ class EdgeTPUInference:
 
         # only keep the int(config["max_lane_count"]) lanes with most points
         max_lane_count = self.config["model_info"]["max_lane_count"]
-        sorted_lanes = sorted(lanes.items(), key=lambda x: len(x), reverse=True)
+        sorted_lanes = sorted(lanes, key=lambda x: len(x), reverse=True)
         lanes_list = sorted_lanes[:max_lane_count]
 
 
@@ -86,17 +86,18 @@ class EdgeTPUInference:
 
     def postprocess(self, instance, offsets, anchor_axis):
         COLORS = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
-        lanes = {}
+        lanes = []
         if not self.postprocess:
             for instanceIdx in range(self.max_instance_count):
-                lanes[f"{instanceIdx}"] = []
+                current_lane = []
                 for dy in range(self.y_anchors):
                     for dx in range(self.x_anchors):
                         instance_prob = instance[0, dy, dx, instanceIdx]
                         offset = offsets[0, dy, dx, 0]
                         gx = anchor_axis[0, dy, dx, 0] + offset
                         gy = anchor_axis[0, dy, dx, 1]
-                        lanes[f"{instanceIdx}"].append(self.prediction_to_coordinates((gx, gy)))
+                        current_lane.append(self.prediction_to_coordinates((gx, gy)))
+                lanes.append(current_lane)
 
         else:
             # Check the variance of anchors by row, ideally, we want each row of instance containt only
@@ -148,18 +149,17 @@ class EdgeTPUInference:
 
             sum_of_y_axis = tf.reduce_sum(anchor_y_axis, axis=2)
             mean_of_y_axis = tf.math.divide_no_nan(sum_of_y_axis, sum_of_instance_row)
-
             # rendering
             for instanceIdx in range(self.max_instance_count):
-                lanes[f"{instanceIdx}"] = []
+                current_lane = []
                 for dy in range(self.y_anchors):
                     instance_prob = sum_of_instance_row[0, dy, instanceIdx]
                     gx = mean_of_x_axis[0, dy, instanceIdx]
                     gy = mean_of_y_axis[0, dy, instanceIdx]
 
                     if instance_prob > 0.5:
-                        lanes[f"{instanceIdx}"].append(self.prediction_to_coordinates((gx, gy)))
-
+                        current_lane.append(self.prediction_to_coordinates((gx, gy)))
+                lanes.append(current_lane)
         return lanes
 
     def prediction_to_coordinates(self, label):
