@@ -60,9 +60,9 @@ class EdgeTPUInference:
         image_prep = self.preprocess_image(image)
 
         if self.input_details[0]['dtype'] == np.uint8:
-            input_data = np.uint8(image * 255)
+            input_data = np.uint8(image_prep * 255)
         else:
-            input_data = image.astype(np.float32) / 255.0
+            input_data = image_prep.astype(np.float32) / 255.0
 
         self.interpreter.set_tensor(self.input_details[0]['index'], [input_data])
         self.interpreter.invoke()
