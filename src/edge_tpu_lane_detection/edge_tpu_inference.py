@@ -166,7 +166,7 @@ class EdgeTPUInference:
         """
         Transform back labels and to the disired format
         """
-        print(label)
+        print(np.matmul(label[0], np.eye(3)))
         xl, xr, yu, yd = self.roi
         roi_width = xr - xl
         roi_height = yd - yu
