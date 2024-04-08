@@ -104,7 +104,6 @@ class LaneDetectionAiNode(node_base.NodeBase):
         # # Get result
         with Timer(name="prediction", filter_strength=40):
             result = self.model.predict(camera_image)
-        print(result)
 
         with Timer(name="debug_image", filter_strength=40):
             if self.param.debug:
