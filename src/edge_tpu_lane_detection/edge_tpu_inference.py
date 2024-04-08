@@ -80,7 +80,8 @@ class EdgeTPUInference:
 
 
         # check which lane is left, center or right by checking each first coordinate and sorting from low to high
-        lanes_list = sorted(lanes_list, key=lambda x: x[0])
+        lanes_list = sorted(lanes_list, key=lambda x: x[0][0] if len(x) > 0 else 0)
+
         print(lanes_list)
         return lanes_list
 
