@@ -157,6 +157,7 @@ class EdgeTPUInference:
                     gx = mean_of_x_axis[0, dy, instanceIdx]
                     gy = mean_of_y_axis[0, dy, instanceIdx]
 
+                    print(f"GY: {gy}, GX: {gx}")
                     if instance_prob > 0.5:
                         lanes[f"{instanceIdx}"].append(self.prediction_to_coordinates((gx, gy)))
 
@@ -169,7 +170,6 @@ class EdgeTPUInference:
         xl, xr, yu, yd = self.roi
         roi_width = xr - xl
         roi_height = yd - yu
-        print(f"Original shape: {self.original_shape}")
         original_height, original_width, _ = self.original_shape
         if xl < label[0] < xr and yu < label[1] < yd:
             label = (label[0] - xl, label[1] - yu)
