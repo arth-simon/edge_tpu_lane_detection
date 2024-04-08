@@ -121,14 +121,14 @@ class EdgeTPUInference:
             # multiplied by instance is that y anchors doesn't join the calcuation of following
             # steps about "variance threshold by row"
             anchor_x_axis = tf.add(anchor_x_axis, offsets)
-            anchor_x_axis = tf.multiply(anchor_x_axis, instance)  # [batch, y_anchors, x_anchors, max_instance_count]
+            anchor_x_axis = tf.multiply(anchor_x_axis, instance)  # [batch, y_anchors, self.x_anchors, max_instance_count]
 
             # get mean of x axis
             sum_of_instance_row = tf.reduce_sum(instance, axis=2)
             sum_of_x_axis = tf.reduce_sum(anchor_x_axis, axis=2)
             mean_of_x_axis = tf.math.divide_no_nan(sum_of_x_axis, sum_of_instance_row)
             mean_of_x_axis = tf.expand_dims(mean_of_x_axis, axis=2)
-            mean_of_x_axis = tf.tile(mean_of_x_axis, [1, 1, x_anchors, 1])
+            mean_of_x_axis = tf.tile(mean_of_x_axis, [1, 1, self.x_anchors, 1])
 
             # create mask for threshold
             X_VARIANCE_THRESHOLD = 10.0
@@ -153,7 +153,7 @@ class EdgeTPUInference:
             # rendering
             for instanceIdx in range(self.max_instance_count):
                 lanes[f"{instanceIdx}"] = []
-                for dy in range(y_anchors):
+                for dy in range(self.y_anchors):
                     instance_prob = sum_of_instance_row[0, dy, instanceIdx]
                     gx = mean_of_x_axis[0, dy, instanceIdx]
                     gy = mean_of_y_axis[0, dy, instanceIdx]
