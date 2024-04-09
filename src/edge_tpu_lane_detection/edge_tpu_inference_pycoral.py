@@ -1,12 +1,11 @@
-import os.path
-import json
 import os
+import json
 import time
-
 import cv2
 import numpy as np
-from tflite_runtime.interpreter import Interpreter
-from tflite_runtime.interpreter import load_delegate
+from pycoral.utils.edgetpu import make_interpreter
+from pycoral.adapters import common
+from typing import List, Optional
 
 
 # --------------------------------------------------------------------------------------------------------------
@@ -17,19 +16,11 @@ class EdgeTPUInference:
         self.debug = debug
         self.enable_post_process = post_process
 
-        self.original_shape: list[int] | None = None
+        self.original_shape: Optional[List[int]] = None
 
         # Load the model onto the Edge TPU
-        # self.interpreter = Interpreter(model_path=str(tflite_model_quant_file),
-        #                                   experimental_delegates=[tf.lite.experimental.load_delegate(
-        #                                       "edgetpu.dll")])
-        # self.interpreter = Interpreter(
-        #     model_path=os.path.join(base_path, "models", self.config["model_info"]["tflite_model_name"]),
-        #     experimental_delegates=[load_delegate('libedgetpu.so.1')])
-        self.interpreter = Interpreter(
-            model_path=os.path.join(base_path, "models", self.config["model_info"]["tflite_model_name"]),
-            experimental_delegates=[load_delegate('libedgetpu.1.dylib')])
-
+        model_path = os.path.join(base_path, "models", self.config["model_info"]["tflite_model_name"])
+        self.interpreter = make_interpreter(model_path)
         self.interpreter.allocate_tensors()
 
         # Get index of inputs and outputs, Model input information
@@ -38,8 +29,8 @@ class EdgeTPUInference:
         self.input_size = self.input_details[0]['shape'][1:3]
         self.roi = self.config["perspective_info"]["cutoffs"]
 
-        _, _, _, self.max_instance_count = self.interpreter.get_output_details()[0]['shape']
-        _, self.y_anchors, self.x_anchors, _ = self.interpreter.get_output_details()[0]['shape']
+        _, _, _, self.max_instance_count = common.output_tensor(self.interpreter, 0).shape
+        _, self.y_anchors, self.x_anchors, _ = common.output_tensor(self.interpreter, 0).shape
 
     def preprocess_image(self, image):
         """
@@ -61,16 +52,19 @@ class EdgeTPUInference:
     def predict(self, image: np.ndarray):
         image_prep = self.preprocess_image(image)
 
-        # if self.input_details[0]['dtype'] == np.uint8:
-        #     image_prep = np.uint8(image_prep * 255)
-
-        add_batch_dimension = np.expand_dims(image_prep, axis=0)
-        self.interpreter.set_tensor(self.input_details[0]['index'], add_batch_dimension)
+        start_time = time.time()
+        # Preprocess and run inference
+        common.set_input(self.interpreter, image_prep)
         self.interpreter.invoke()
 
-        instance = self.interpreter.get_tensor(self.output_details[0]["index"])
-        offsets = self.interpreter.get_tensor(self.output_details[1]["index"])
-        anchor_axis = self.interpreter.get_tensor(self.output_details[2]["index"])
+        print("Inference took: ", time.time() - start_time)
+
+        # Post-process and extract results
+        instance = common.output_tensor(self.interpreter, 0)
+        offsets = common.output_tensor(self.interpreter, 1)
+        # anchor_axis = common.output_tensor(self.interpreter, 2)
+
+
 
         lanes = self.postprocess(instance, offsets, anchor_axis)
         # only keep the int(config["max_lane_count"]) lanes with most points
@@ -177,10 +171,11 @@ class EdgeTPUInference:
 
 if __name__ == "__main__":
     # run inference on single picture
-    path_of_image = "path/to/image.jpg"
+    path_of_image = r"C:\Users\bensc\Downloads\50bilder\1702994123576254273.jpg"
 
     # Load the model
-    model = EdgeTPUInference(base_path="path/to/base", model_config_path="path/to/model_config.json")
+    model = EdgeTPUInference(base_path=r"C:\Users\bensc\Projects\edge_tpu_ld\edge_tpu_lane_detection",
+                             model_config_path=r"C:\Users\bensc\Projects\edge_tpu_ld\edge_tpu_lane_detection\config\cvat_config.json")
 
     # Load the image
     image = cv2.imread(path_of_image)

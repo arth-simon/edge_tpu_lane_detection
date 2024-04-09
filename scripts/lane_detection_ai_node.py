@@ -4,7 +4,6 @@ from contextlib import suppress
 
 import cv2
 import edge_tpu_lane_detection.msg
-import numpy as np
 import rospkg
 from edge_tpu_lane_detection.edge_tpu_inference import EdgeTPUInference
 
