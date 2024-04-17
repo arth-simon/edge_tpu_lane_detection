@@ -1,5 +1,7 @@
 # Lane Detector implementation in Keras
 
+Lane Detection for the interdisciplinary autonomous driving challenge "Caudri" as part of the Smart Rollerz Team.
+
 ## Contents
 - [Lane Detector implementation in Keras](#lane-detector-implementation-in-keras)
   - [Contents](#contents)
