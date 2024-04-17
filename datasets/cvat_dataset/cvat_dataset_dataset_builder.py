@@ -413,6 +413,10 @@ def _map_projection_data_generator(src_image,
 
 
 def _resize_transformed_labels(label, previous_shape, cutoff_shape, resize_shape, cutoffs):
+    """
+    Resize the transformed label to the desired shape
+    :param label: label to resize
+    """
     c_width, c_height  = cutoff_shape[:2]
     r_width, r_height  = resize_shape[:2]
     p_width, p_height = previous_shape[:2]

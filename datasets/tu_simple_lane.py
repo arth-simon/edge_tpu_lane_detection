@@ -14,7 +14,7 @@ from scipy.interpolate import interp1d
 import datasets.cvat_dataset
 import tensorflow_datasets as tfds
 
-
+map_dates = {}
 class TusimpleLane:
 
     # ----------------------------------------------------------------------------------------
@@ -40,13 +40,17 @@ class TusimpleLane:
         else:
             augmentation_deg = [0.0]
         dates = list(config["perspective_info"].keys())
-        perspective_infos = {}
-        for date in dates:
+        perspective_infos = []
+        global map_dates
+        num_list = []
+        for k, date in enumerate(dates):
             H_list, map_x_list, map_y_list = create_map(config, date, augmentation_deg=augmentation_deg)
             # H_list = tf.constant(H_list)
             # map_x_list = tf.constant(map_x_list)
             # map_y_list = tf.constant(map_y_list)
-            perspective_infos[date] = (H_list, map_x_list, map_y_list)
+            map_dates[date] = k
+            num_list.append(k)
+            perspective_infos.append((H_list, map_x_list, map_y_list))
 
         # pipe = [tf.data.Dataset.from_tensors(i) for i in self._data_reader(dataset_path, label_set[0], augmentation_deg)][0]
         # pipe = tf.data.Dataset.from_tensor_slices(label_set, "CVAT")
@@ -66,7 +70,10 @@ class TusimpleLane:
         #                                              augmentation_deg)
         #                                        )
         # build dataset
-        label_set = tf.data.Dataset.from_tensor_slices(label_set)
+        label_set = tf.data.Dataset.from_tensor_slices(num_list)
+#         print(tf.executing_eagerly())
+#         for i in _data_reader(dataset_path, label_set[0], augmentation_deg, x_anchors, y_anchors, ground_img_size, perspective_infos, max_lane_count):
+#             print(i)
         pipe = label_set.interleave(
             lambda label_file_name: tf.data.Dataset.from_generator(_data_reader,
                                                                    output_types=(tf.dtypes.uint8,
@@ -78,35 +85,35 @@ class TusimpleLane:
                                                                                   None,
                                                                                   None),
                                                                    args=(dataset_path,
-                                                                         label_file_name,
+                                                                         "train_set.json",
                                                                          augmentation_deg,
                                                                          x_anchors,
                                                                          y_anchors,
                                                                          ground_img_size,
-                                                                         perspective_infos,
+                                                                         perspective_infos[label_file_name],
                                                                          max_lane_count)
                                                                    )
         )
 
-        pipe = pipe.map(
-            # convert data to training label and norimalization
-            lambda image, label_lanes, label_h_samples, refIdx:
-            tf.numpy_function(func=_map_projection_data_generator,
-                              inp=[image,
-                                   label_lanes,
-                                   label_h_samples,
-                                   x_anchors,
-                                   y_anchors,
-                                   max_lane_count,
-                                   H_list[refIdx],
-                                   map_x_list[refIdx],
-                                   map_y_list[refIdx],
-                                   ground_img_size],
-                              Tout=[tf.dtypes.float32,
-                                    tf.dtypes.float32])
-            ,
-            num_parallel_calls=tf.data.experimental.AUTOTUNE
-        )
+        # pipe = pipe.map(
+        #     # convert data to training label and norimalization
+        #     lambda image, label_lanes, label_h_samples, refIdx:
+        #     tf.numpy_function(func=_map_projection_data_generator,
+        #                       inp=[image,
+        #                            label_lanes,
+        #                            label_h_samples,
+        #                            x_anchors,
+        #                            y_anchors,
+        #                            max_lane_count,
+        #                            H_list[refIdx],
+        #                            map_x_list[refIdx],
+        #                            map_y_list[refIdx],
+        #                            ground_img_size],
+        #                       Tout=[tf.dtypes.float32,
+        #                             tf.dtypes.float32])
+        #     ,
+        #     num_parallel_calls=tf.data.experimental.AUTOTUNE
+        # )
 
         pipe = pipe.prefetch(  # Overlap producer and consumer works
             tf.data.experimental.AUTOTUNE
@@ -172,45 +179,59 @@ def _data_reader(dataset_path,
         sys.exit(0)
 
     count = 0
-
+    # global map_dates
     # load data
     with open(label_data_path, 'r') as reader:
         for line in reader.readlines():
             raw_label = json.loads(line)
-            image_path = os.path.join(str(dataset_path, 'utf-8'), raw_label["raw_file"])
+            image_path = os.path.join(str(dataset_path), raw_label["raw_file"])
             label_lanes = raw_label["lanes"]
             label_h_samples = raw_label["h_samples"]
-
+            cutoffs = [450, 850, 450, 850]
             # read image
             with Image.open(image_path) as image:
                 image_ary = np.asarray(image)
 
             count += 1
 
-            H, map_x, map_y = tranformation_params[raw_label["raw_file"][0:10]]
+            H, map_x, map_y = tranformation_params # [map_dates[raw_label["raw_file"][0:10]]]
+            with open("dbg.txt", "a") as f:
+                f.write(f"Image: {raw_label['raw_file']}, H: {H}, map_x: {map_x}, map_y: {map_y}\n")
             if augmentation_deg is None:
-                yield _map_projection_data_generator(image_ary,
+                result_tpl = _map_projection_data_generator(image_ary,
                                                      label_lanes,
                                                      label_h_samples,
+                                                     (256,256),
                                                      x_anchors,
                                                      y_anchors,
                                                      max_lane_count,
                                                      H[0],
                                                      map_x[0],
                                                      map_y[0],
-                                                     ground_img_size,)
+                                                     ground_img_size,
+                                                     cutoffs)
+                if result_tpl is not None:
+                    yield result_tpl
+                else:
+                    continue
             else:
                 for refIdx in range(len(augmentation_deg)):
-                    yield _map_projection_data_generator(image_ary,
+                    result_tpl = _map_projection_data_generator(image_ary,
                                                          label_lanes,
                                                          label_h_samples,
+                                                         (256,256),
                                                          x_anchors,
                                                          y_anchors,
                                                          max_lane_count,
                                                          H[refIdx],
                                                          map_x[refIdx],
                                                          map_y[refIdx],
-                                                         ground_img_size,)
+                                                         ground_img_size,
+                                                         cutoffs)
+                    if result_tpl is not None:
+                        yield result_tpl
+                    else:
+                        continue
 
 
 def create_map(config, day_of_recording: str,
@@ -474,6 +495,7 @@ def _map_projection_data_generator(src_image,
     # with open(f"images/outpt_imgs/{imagecnt:03d}.jpg", "wb") as f:
     #     f.write(cv2.imencode('.jpg', gImg)[1])
     # imagecnt += 1
+    print(type(imgf), type(label))
     if not lane_added:
         return None, None
     return imgf, label

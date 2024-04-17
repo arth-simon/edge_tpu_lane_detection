@@ -12,6 +12,7 @@ import datasets.cvat_dataset
 import tensorflow_datasets as tfds
 from datasets import TusimpleLane
 from eval import LaneDetectionEval
+from tqdm import tqdm
 
 # --------------------------------------------------------------------------------------------------------------
 def tflite_image_test(tflite_model_quant_file,
@@ -36,19 +37,23 @@ def tflite_image_test(tflite_model_quant_file,
     _, y_anchors, x_anchors, _ = output_index_anchor_axis['shape']
 
     files = []
-    with open("../../source/IMG_ROOTS/1280x960_CVATROOT/test_set/test_set.json", "r") as inf:
-        files = [json.loads(i)["raw_file"] for i in inf]
+    with open("../../source/IMG_ROOTS/1280x960_ROSBAGS/tusimple.json", "r") as inf:
+        files = [json.loads(i)["raw_file"] for i in inf if '15-35-18' in i]
 
     COLORS = [(0, 0, 255), (0, 255, 0), (255, 0, 0), 
               (0, 255, 255), (255, 0, 255), (255, 255, 0) ]
 
-    total_accs = []
-    fp_accs = []
-    fn_accs = []
+    total_precision = []
+    total_recall = []
+    total_f1 = []
 
-    for k, elem in enumerate(dataset):
+    average_precision = []
+    average_recall = []
+    average_f1 = []
+
+    for k, elem in tqdm(enumerate(dataset), desc="evaluating...", total=len(dataset)): # tqdm(enumerate(files), desc="creating images", total=len(files)):
         test_img = elem[0] # np.zeros((1, 256, 256, 3), dtype=np.uint8)
-        # tmp_img = cv2.imread("../../source/IMG_ROOTS/1280x960_CVATROOT/test_set/" + elem)# elem[0]
+        # tmp_img = cv2.imread("../../source/IMG_ROOTS/1280x960_ROSBAGS/images/" + elem) # elem[0]
         test_label = elem[1]
 
 
@@ -61,7 +66,6 @@ def tflite_image_test(tflite_model_quant_file,
 
         if input_index['dtype']== np.uint8:
             test_img = np.uint8(test_img * 255)
-
         # inference
         interpreter.set_tensor(input_index["index"], test_img)
         interpreter.invoke()
@@ -71,12 +75,18 @@ def tflite_image_test(tflite_model_quant_file,
         anchor_axis = interpreter.get_tensor(output_index_anchor_axis["index"])
 
         acc_dict = LaneDetectionEval.evaluate_predictions((instance, offsets, anchor_axis), test_label)
-        accuracy = acc_dict["accuracy"]
-        fp = acc_dict["fp_rate"]
-        fn = acc_dict["fn_rate"]
-        total_accs.append((sum(total_accs) + accuracy) / (k+1))
-        fp_accs.append((sum(fp_accs) + fp) / (k+1))
-        fn_accs.append((sum(fn_accs) + fn) / (k+1))
+        precision = acc_dict["precision"]
+        recall = acc_dict["recall"]
+        f1 = acc_dict["f1"]
+        total_precision.append(precision)
+        total_recall.append(recall)
+        total_f1.append(f1)
+        average_recall.append(sum(total_recall) / (k+1))
+        average_precision.append(sum(total_precision) / (k+1))
+        average_f1.append(sum(total_f1) / (k+1))
+        # total_accs.append((sum(total_accs) + accuracy) / (k+1))
+        # fp_accs.append((sum(fp_accs) + fp) / (k+1))
+        # fn_accs.append((sum(fn_accs) + fn) / (k+1))
 
         # convert image to gray 
         main_img = cv2.cvtColor(test_img[0], cv2.COLOR_BGR2GRAY)
@@ -170,11 +180,11 @@ def tflite_image_test(tflite_model_quant_file,
                 cv2.line(main_img, (0, int(py)), (target_szie[0], int(py)), (125, 125, 125))
 
         # print(f"writing image: {k:03d}")
-        # cv2.imwrite(f"images/outpt_imgs/frame{k:03d}.jpg", main_img)
+        # cv2.imwrite(f"images/outpt_imgs/frame{k:04d}.jpg", main_img)
         # plt.figure(figsize = (8,8))
         # plt.imshow(main_img)
         # plt.show()
-    return total_accs, fp_accs, fn_accs
+    return average_precision, average_recall, average_f1
 
 # --------------------------------------------------------------------------------------------------
 if __name__ == '__main__':
@@ -195,6 +205,7 @@ if __name__ == '__main__':
     dst_points = [(persp_info[f"ground_p{i}"][0] , persp_info[f"ground_p{i}"][1] ) for i in range(4)]
     mtx = cv2.getPerspectiveTransform(np.array(src_points, dtype=np.float32),
                                       np.array(dst_points, dtype=np.float32))
+
 
     if not os.path.exists(tflite_model_name):
         print("tlite model doesn't exist, please run \"generate_tflite_nidel.py\" first to convert tflite model.")
@@ -227,23 +238,24 @@ if __name__ == '__main__':
     print("---------------------------------------------------")
     print("Load model as TF-Lite and test")
     print("---------------------------------------------------")
-    accs_t, accs_fp, accs_fn = tflite_image_test(tflite_model_name, valid_batches, True, mtx)
-    plt.plot(range(len(accs_t)), accs_t,  'm--')
+    precision, recall, f1 = tflite_image_test(tflite_model_name, valid_batches, True, mtx)
+    # accs_t, accs_fp, accs_fn = tflite_image_test(tflite_model_name, valid_batches, True, mtx)
+    plt.plot(range(len(precision)), precision,  'm--')
     plt.xlabel("frames")
-    plt.ylabel("accuracy")
-    plt.title("Accuracy of lane detection")
-    plt.savefig("images/accuracy.png")
+    plt.ylabel("Precision")
+    plt.title("Average Precision of lane detection")
+    plt.savefig("images/precision.png")
     plt.clf()
-    plt.plot(range(len(accs_fp)), accs_fp,  'm--')
+    plt.plot(range(len(recall)), recall,  'm--')
     plt.xlabel("frames")
-    plt.ylabel("false positive")
-    plt.title("False positive of lane detection")
-    plt.savefig("images/false_positive.png")
+    plt.ylabel("Recall")
+    plt.title("Average Recall of lane detection")
+    plt.savefig("images/recall.png")
     plt.clf()
-    plt.plot(range(len(accs_fn)), accs_fn, 'm--')
+    plt.plot(range(len(f1)), f1, 'm--')
     plt.xlabel("frames")
-    plt.ylabel("false negative")
-    plt.title("False negative of lane detection")
-    plt.savefig("images/false_negative.png")
+    plt.ylabel("F1")
+    plt.title("Average F1 Score of lane detection")
+    plt.savefig("images/F1.png")
     plt.clf()
 

@@ -58,11 +58,14 @@ class LaneDetectionEval:
 
         total_predicted = sum(len(np.array(pred)) for pred in predictions)
 
-        accuracy = total_correct / total_ground_truth if total_ground_truth > 0 else 0
-        fp = len(predictions) - len(matched_predictions)  # Lanes predicted but not matched with any GT
-        fn = len(ground_truths) - len(matched_predictions)  # GT lanes not matched with any prediction
+        # accuracy = total_correct / total_ground_truth if total_ground_truth > 0 else 0
+        # fp = len(predictions) - len(matched_predictions)  # Lanes predicted but not matched with any GT
+        # fn = len(ground_truths) - len(matched_predictions)  # GT lanes not matched with any prediction
+        precision = total_correct / total_predicted if total_predicted > 0 else 0
+        recall = total_correct / total_ground_truth if total_ground_truth > 0 else 0
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0
         
-        return accuracy, fp, fn
+        return total_correct, total_predicted, total_ground_truth
 
     @staticmethod
     def calculate_match_score(pred_lane, gt_lane):
@@ -113,18 +116,18 @@ class LaneDetectionEval:
         predictions = LaneDetectionEval.interpret_model_output(instance, offsets, anchor_axis, y_anchors, x_anchors, max_instance_count)
         # Assuming ground_truths is a list of ground truth lanes for the same structure as predictions
         
-        total_accuracy, total_fp, total_fn = 0., 0., 0.
+        total_precision, total_recall, total_f1 = 0., 0., 0.
         for gt in ground_truths:
-            accuracy, fp, fn = LaneDetectionEval.evaluate_lane(predictions, gt)
-            total_accuracy += accuracy
-            total_fp += fp
-            total_fn += fn
+            precision, recall, f1 = LaneDetectionEval.evaluate_lane(predictions, gt)
+            total_precision += precision
+            total_recall += recall
+            total_f1 += f1
 
         # Calculate average metrics or total counts as needed
         return {
-            "accuracy": total_accuracy / len(ground_truths),
-            "fp_rate": total_fp / len(predictions),
-            "fn_rate": total_fn / len(ground_truths)
+            "precision": total_precision / len(ground_truths),
+            "recall": total_recall / len(predictions),
+            "f1": total_f1 / len(ground_truths)
         }
 
 # Example usage
