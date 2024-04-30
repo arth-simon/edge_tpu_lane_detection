@@ -43,13 +43,10 @@ def tflite_image_test(tflite_model_quant_file,
     COLORS = [(0, 0, 255), (0, 255, 0), (255, 0, 0), 
               (0, 255, 255), (255, 0, 255), (255, 255, 0) ]
 
-    total_precision = []
-    total_recall = []
-    total_f1 = []
-
-    average_precision = []
-    average_recall = []
-    average_f1 = []
+    total_correct, total_predicted, total_ground_truth = 0, 0, 0
+    precision_by_frame = []
+    recall_by_frame = []
+    f1_by_frame = []
 
     for k, elem in tqdm(enumerate(dataset), desc="evaluating...", total=len(dataset)): # tqdm(enumerate(files), desc="creating images", total=len(files)):
         test_img = elem[0] # np.zeros((1, 256, 256, 3), dtype=np.uint8)
@@ -74,19 +71,16 @@ def tflite_image_test(tflite_model_quant_file,
         offsets = interpreter.get_tensor(output_index_offsets["index"])
         anchor_axis = interpreter.get_tensor(output_index_anchor_axis["index"])
 
-        acc_dict = LaneDetectionEval.evaluate_predictions((instance, offsets, anchor_axis), test_label)
-        precision = acc_dict["precision"]
-        recall = acc_dict["recall"]
-        f1 = acc_dict["f1"]
-        total_precision.append(precision)
-        total_recall.append(recall)
-        total_f1.append(f1)
-        average_recall.append(sum(total_recall) / (k+1))
-        average_precision.append(sum(total_precision) / (k+1))
-        average_f1.append(sum(total_f1) / (k+1))
-        # total_accs.append((sum(total_accs) + accuracy) / (k+1))
-        # fp_accs.append((sum(fp_accs) + fp) / (k+1))
-        # fn_accs.append((sum(fn_accs) + fn) / (k+1))
+        correct, predicted, ground_truth = LaneDetectionEval.evaluate_predictions(
+            (instance, offsets, anchor_axis),
+            test_label)
+        total_correct += correct
+        total_predicted += predicted
+        total_ground_truth += ground_truth
+        precision_by_frame.append(total_correct / total_predicted if total_predicted > 0 else 0)
+        recall_by_frame.append(total_correct / total_ground_truth if total_ground_truth > 0 else 0)
+        f1_by_frame.append(2 * precision_by_frame[-1] * recall_by_frame[-1] / (precision_by_frame[-1] + recall_by_frame[-1])
+                           if precision_by_frame[-1] + recall_by_frame[-1] > 0 else 0)
 
         # convert image to gray 
         main_img = cv2.cvtColor(test_img[0], cv2.COLOR_BGR2GRAY)
@@ -184,7 +178,7 @@ def tflite_image_test(tflite_model_quant_file,
         # plt.figure(figsize = (8,8))
         # plt.imshow(main_img)
         # plt.show()
-    return average_precision, average_recall, average_f1
+    return precision_by_frame, recall_by_frame, f1_by_frame
 
 # --------------------------------------------------------------------------------------------------
 if __name__ == '__main__':

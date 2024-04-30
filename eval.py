@@ -116,19 +116,15 @@ class LaneDetectionEval:
         predictions = LaneDetectionEval.interpret_model_output(instance, offsets, anchor_axis, y_anchors, x_anchors, max_instance_count)
         # Assuming ground_truths is a list of ground truth lanes for the same structure as predictions
         
-        total_precision, total_recall, total_f1 = 0., 0., 0.
+        total_correct, total_predicted, total_ground_truth = 0., 0., 0.
         for gt in ground_truths:
-            precision, recall, f1 = LaneDetectionEval.evaluate_lane(predictions, gt)
-            total_precision += precision
-            total_recall += recall
-            total_f1 += f1
+            correct, predicted, ground_truth = LaneDetectionEval.evaluate_lane(predictions, gt)
+            total_correct += correct
+            total_predicted += predicted
+            total_ground_truth += ground_truth
 
         # Calculate average metrics or total counts as needed
-        return {
-            "precision": total_precision / len(ground_truths),
-            "recall": total_recall / len(predictions),
-            "f1": total_f1 / len(ground_truths)
-        }
+        return total_correct, total_predicted, total_ground_truth
 
 # Example usage
 # model_output = (instance_tensor, offsets_tensor, anchor_axis_tensor)  # Tensors from the TensorFlow Lite model
