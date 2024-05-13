@@ -283,7 +283,13 @@ class OutputMuxer(tf.keras.layers.Layer):
     
         
         # filter data by embeddings and decode offsets by exp
-        offsets = tf.exp(pred_offset)
+        # using tailor approximation so that it can be quantized
+        offsets = (pred_offset +
+                   pred_offset*pred_offset / 2 +
+                   pred_offset*pred_offset*pred_offset / 6) #+
+                   # pred_offset*pred_offset*pred_offset*pred_offset / 24 +
+                   # pred_offset*pred_offset*pred_offset*pred_offset*pred_offset / 120)
+        # pred_offset # tf.exp(pred_offset)
         # anchor_x_axis = tf.add(anchor_x_axis, offsets) 
      
         # generate confidence data

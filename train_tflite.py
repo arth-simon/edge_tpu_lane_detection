@@ -1,4 +1,3 @@
-
 import sys
 import os
 import matplotlib.pyplot as plt
@@ -12,26 +11,33 @@ from datasets.cvat_dataset.cvat_dataset_dataset_builder import Builder
 import tensorflow_datasets as tfds
 from models import AlphaLaneModel
 from losses import LaneLoss
-   
+import time
+
+
+def augment_image(image_label, seed):
+    image, label = image_label
+    image = tf.image.stateless_random_brightness(image, 0.1, seed=seed)
+    image = tf.image.stateless_random_contrast(image, 0.2, 0.85, seed=seed)
+    # image = tf.image.random_flip_left_right(image)
+    return image, label
+
 
 # --------------------------------------------------------------------------------------------------
 if __name__ == '__main__':
     # read configs
     with open('add_ins/cvat_config2.json', 'r') as inf:
         config = json.load(inf)
-    
-    net_input_img_size  = config["model_info"]["input_image_size"]
-    x_anchors           = config["model_info"]["x_anchors"]
-    y_anchors           = config["model_info"]["y_anchors"]
-    max_lane_count      = config["model_info"]["max_lane_count"]
-    checkpoint_path     = config["model_info"]["checkpoint_path"]
-    
+
+    net_input_img_size = config["model_info"]["input_image_size"]
+    x_anchors = config["model_info"]["x_anchors"]
+    y_anchors = config["model_info"]["y_anchors"]
+    max_lane_count = config["model_info"]["max_lane_count"]
+    checkpoint_path = config["model_info"]["checkpoint_path"]
 
     # enable memory growth to prevent out of memory when training
     physical_devices = tf.config.list_physical_devices('GPU')
     assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
-
 
     # set path of training data
     train_dataset_path = "/mnt/c/Users/inf21034/source/IMG_ROOTS/1280x960_CVATROOT/train_set"
@@ -46,30 +52,40 @@ if __name__ == '__main__':
     #
     test_label_set = ["test_set.json"]
 
+    rng = tf.random.Generator.from_seed(int(time.time()), alg='philox')
+
+
+    def f(image, label):
+        seed = rng.make_seeds(1)[:, 0]
+        image, label = augment_image((image, label), seed)
+        return image, label
+
+
     # create dataset
     augmentation = True
-    batch_size=32
+    batch_size = 32
     train_batches = tfds.load('cvat_dataset',
                               split='train',
                               shuffle_files=True,
                               as_supervised=True,
                               batch_size=batch_size)
     train_batches = train_batches.prefetch(tf.data.experimental.AUTOTUNE)
-        # datasets.TusimpleLane(train_dataset_path, train_label_set, config, augmentation=augmentation).get_pipe()
+    train_batches = train_batches.map(f, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    # datasets.TusimpleLane(train_dataset_path, train_label_set, config, augmentation=augmentation).get_pipe()
     # train_batches = train_batches.shuffle(1000).batch(batch_size)
     # print("Training batches: ", list(train_batches.as_numpy_iterator()))
 
     valid_batches = tfds.load('cvat_dataset', split='test', shuffle_files=True, as_supervised=True)
     # valid_batches = valid_batches.prefetch(tf.data.experimental.AUTOTUNE)
-        # datasets.TusimpleLane(test_dataset_path, test_label_set, config, augmentation=False).get_pipe()
+    # datasets.TusimpleLane(test_dataset_path, test_label_set, config, augmentation=False).get_pipe()
     valid_batches = valid_batches.batch(1)
 
     # tf.debugging.disable_traceback_filtering()
     # create model
     model: tf.keras.Model = AlphaLaneModel(net_input_img_size, x_anchors, y_anchors,
-                           training=True,
-                           name='AlphaLaneNet',
-                           input_batch_size=batch_size)
+                                           training=True,
+                                           name='AlphaLaneNet',
+                                           input_batch_size=batch_size)
     model.summary()
 
     # Enable to load weights from previous training.
@@ -81,13 +97,13 @@ if __name__ == '__main__':
                   run_eagerly=False)
 
     checkpoint_path = os.path.join(checkpoint_path, "ccp-{epoch:04d}.ckpt")
-    cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_path, 
-                                                     verbose=1, 
+    cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_path,
+                                                     verbose=1,
                                                      save_weights_only=True,
                                                      period=5)
     # start train
     history = model.fit(train_batches,
                         callbacks=[cp_callback],
-                        epochs = 200)
+                        epochs=200)
 
     print("Training finish ...")

@@ -7,6 +7,8 @@ import time
 # from tflite_runtime.interpreter import Interpreter
 # from tflite_runtime.interpreter import load_delegate
 import tensorflow as tf
+from tqdm import tqdm
+import atexit
 
 
 # --------------------------------------------------------------------------------------------------------------
@@ -20,11 +22,18 @@ def preprocess_image(image_path, input_size):
     return image
 
 
+def del_interpreter(interpreter):
+    del interpreter
+    return
+
+
 def tflite_image_test(tflite_model_quant_file, folder_path, with_post_process=True):
     # Load the model onto the Edge TPU
     interpreter = tf.lite.Interpreter(model_path=str(tflite_model_quant_file),
                                       experimental_delegates=[tf.lite.experimental.load_delegate(
                                           "edgetpu.dll")])
+    # lambda that deletes the interpreter reference at the end of the program
+    atexit.register(del_interpreter, interpreter)
     # interpreter = Interpreter(model_path=str(tflite_model_quant_file),
     #                           experimental_delegates=[load_delegate('libedgetpu.so.1')])
     interpreter.allocate_tensors()
@@ -40,8 +49,8 @@ def tflite_image_test(tflite_model_quant_file, folder_path, with_post_process=Tr
 
     frame_count = 0
     total_inference_time = 0
-
-    for image_name in os.listdir(folder_path):
+    dirs = os.listdir(folder_path)
+    for image_name in tqdm(dirs, desc="Processing images", total=len(dirs)):
         if image_name.lower().endswith(('.png', '.jpg', '.jpeg')):
             image_path = os.path.join(folder_path, image_name)
             image = preprocess_image(image_path, (input_size[1], input_size[0]))  # width, height
