@@ -7,8 +7,11 @@ import time
 import json
 from tflite_runtime.interpreter import Interpreter
 from tflite_runtime.interpreter import load_delegate
-
+from timer.timer import Timer
+import pickle
 import tensorflow as tf
+
+
 
 
 # --------------------------------------------------------------------------------------------------------------
@@ -28,7 +31,8 @@ class EdgeTPUInference:
         self.interpreter = Interpreter(model_path=os.path.join(base_path, "models", self.config["model_info"]["tflite_model_name"]),
                                        experimental_delegates=[load_delegate('libedgetpu.so.1')])
         self.interpreter.allocate_tensors()
-
+        self.own_path = os.path.dirname(os.path.abspath(__file__))
+        self.anchor_axis = pickle.load(open(f"{self.own_path}/anchor_axis.pkl", "rb"))
         # Get index of inputs and outputs, Model input information
         self.input_details = self.interpreter.get_input_details()
         self.output_details = self.interpreter.get_output_details()
@@ -58,37 +62,40 @@ class EdgeTPUInference:
     def predict(self, image: np.ndarray):
         image_prep = self.preprocess_image(image)
 
-        if self.input_details[0]['dtype'] == np.uint8:
-            image_prep = np.uint8(image_prep * 255)
+        #if self.input_details[0]['dtype'] == np.uint8:
+        #    image_prep = np.uint8(image_prep * 255)
         # else:
         #     image_prep = image_prep.astype(np.float32) / 255.0
         correctly_dimensioned_im = np.expand_dims(image_prep, axis=0)
+        print("Shape of input image: ", correctly_dimensioned_im.shape)
         self.interpreter.set_tensor(self.input_details[0]['index'], correctly_dimensioned_im)
-        self.interpreter.invoke()
+        with Timer(name="Inference", filter_strength=40):
+            self.interpreter.invoke()
+        # self.interpreter.invoke()
 
-        instance = self.interpreter.get_tensor(self.output_details[0]["index"])
-        offsets = self.interpreter.get_tensor(self.output_details[1]["index"])
-        anchor_axis = self.interpreter.get_tensor(self.output_details[2]["index"])
-
-        lanes = self.postprocess(instance, offsets, anchor_axis)
+            instance = self.interpreter.get_tensor(self.output_details[0]["index"])
+            offsets = self.interpreter.get_tensor(self.output_details[1]["index"])
+        #anchor_axis = self.interpreter.get_tensor(self.output_details[2]["index"])
+        anchor_axis = self.anchor_axis
+        with Timer(name="Postprocessing", filter_strength=40):
+            lanes = self.postprocess(instance, offsets, anchor_axis)    
+        #lanes = self.postprocess(instance, offsets, anchor_axis)
 
         # only keep the int(config["max_lane_count"]) lanes with most points
         max_lane_count = self.config["model_info"]["max_lane_count"]
         sorted_lanes = sorted(lanes, key=lambda x: len(x), reverse=True)
         lanes_list = sorted_lanes[:max_lane_count]
-
-
-
         # check which lane is left, center or right by checking each first coordinate and sorting from low to high
         lanes_list = sorted(lanes_list, key=lambda x: x[0][0] if len(x) > 0 else 0)
 
-        print(lanes_list)
+        # print(lanes_list)
         return lanes_list
 
     def postprocess(self, instance, offsets, anchor_axis):
         COLORS = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
         lanes = []
         if not self.postprocess:
+            
             for instanceIdx in range(self.max_instance_count):
                 current_lane = []
                 for dy in range(self.y_anchors):
@@ -113,68 +120,59 @@ class EdgeTPUInference:
             anchor_x_axis = tf.expand_dims(anchor_x_axis, axis=-1)
             anchor_y_axis = tf.expand_dims(anchor_y_axis, axis=-1)
 
-            # create 0/1 mask by instance
-            instance = tf.where(instance > 0.5,
-                                tf.constant([1.0], tf.float32),
-                                tf.constant([0.0], tf.float32))
+            instance = tf.where(instance > 0.5, 1.0, 0.0)
 
-            # mux x anchors and offsets by instance, the reason why y anchors doesn't need to
-            # multiplied by instance is that y anchors doesn't join the calcuation of following
-            # steps about "variance threshold by row"
             anchor_x_axis = tf.add(anchor_x_axis, offsets)
-            anchor_x_axis = tf.multiply(anchor_x_axis, instance)  # [batch, y_anchors, self.x_anchors, max_instance_count]
+            anchor_x_axis = tf.multiply(anchor_x_axis, instance)
 
-            # get mean of x axis
             sum_of_instance_row = tf.reduce_sum(instance, axis=2)
             sum_of_x_axis = tf.reduce_sum(anchor_x_axis, axis=2)
             mean_of_x_axis = tf.math.divide_no_nan(sum_of_x_axis, sum_of_instance_row)
             mean_of_x_axis = tf.expand_dims(mean_of_x_axis, axis=2)
             mean_of_x_axis = tf.tile(mean_of_x_axis, [1, 1, self.x_anchors, 1])
 
-            # create mask for threshold
             X_VARIANCE_THRESHOLD = 10.0
             diff_of_axis_x = tf.abs(tf.subtract(anchor_x_axis, mean_of_x_axis))
-            mask_of_mean_offset = tf.where(diff_of_axis_x < X_VARIANCE_THRESHOLD,
-                                           tf.constant([1.0], tf.float32),
-                                           tf.constant([0.0], tf.float32))
+            mask_of_mean_offset = tf.where(diff_of_axis_x < X_VARIANCE_THRESHOLD, 1.0, 0.0)
 
-            # do threshold
             instance = tf.multiply(mask_of_mean_offset, instance)
             anchor_x_axis = tf.multiply(mask_of_mean_offset, anchor_x_axis)
             anchor_y_axis = tf.multiply(mask_of_mean_offset, anchor_y_axis)
 
-            # average anchors by row
             sum_of_instance_row = tf.reduce_sum(instance, axis=2)
             sum_of_x_axis = tf.reduce_sum(anchor_x_axis, axis=2)
             mean_of_x_axis = tf.math.divide_no_nan(sum_of_x_axis, sum_of_instance_row)
 
             sum_of_y_axis = tf.reduce_sum(anchor_y_axis, axis=2)
             mean_of_y_axis = tf.math.divide_no_nan(sum_of_y_axis, sum_of_instance_row)
-            # rendering
+
+            lanes = [[] for _ in range(self.max_instance_count)]
             for instanceIdx in range(self.max_instance_count):
-                current_lane = []
-                for dy in range(self.y_anchors):
-                    instance_prob = sum_of_instance_row[0, dy, instanceIdx]
-                    gx = mean_of_x_axis[0, dy, instanceIdx]
-                    gy = mean_of_y_axis[0, dy, instanceIdx]
-                    if instance_prob > 0.5:
-                        current_lane.append(self.prediction_to_coordinates((gx, gy)))
-                lanes.append(current_lane)
+                instance_mask = sum_of_instance_row[0, :, instanceIdx] > 0.5
+                gx_filtered = tf.boolean_mask(mean_of_x_axis[0, :, instanceIdx], instance_mask)
+                gy_filtered = tf.boolean_mask(mean_of_y_axis[0, :, instanceIdx], instance_mask)
+
+                if len(gx_filtered) > 0:
+                    gx_list = gx_filtered.numpy()
+                    gy_list = gy_filtered.numpy()
+
+                    current_lane = np.stack((gx_list, gy_list), axis=-1)
+                    lanes[instanceIdx] = [self.prediction_to_coordinates(coord) for coord in current_lane]
+  
         return lanes
 
     def prediction_to_coordinates(self, label):
         """
         Transform back labels and to the disired format
         """
-        print(np.matmul(label[0], np.eye(3)))
         xl, xr, yu, yd = self.roi
         roi_width = xr - xl
         roi_height = yd - yu
         original_height, original_width, _ = self.original_shape
         if xl < label[0] < xr and yu < label[1] < yd:
             label = (label[0] - xl, label[1] - yu)
-        label = (label[0] * original_width // roi_width,
-                 label[1] * original_width // roi_height)
+        label = (int(label[0]),# * original_width // roi_width,
+                 int(label[1])) # * original_width // roi_height)
         return label
 
 

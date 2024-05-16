@@ -16,6 +16,8 @@ from ros_base import node_base
 from timer.timer import Timer
 from transformation.birds_eyed_view import BirdseyedviewTransformation
 from transformation.coordinate_transform import CoordinateTransform
+import geometry_msgs.msg
+import lane_detection_ai.msg
 
 
 class LaneDetectionAiNode(node_base.NodeBase):
@@ -97,13 +99,47 @@ class LaneDetectionAiNode(node_base.NodeBase):
         timer.start()
 
         # Get image from the example message
-        camera_image = self.cv_bridge.imgmsg_to_cv2(camera_image_msg, desired_encoding='8UC1')
-        camera_image = cv2.cvtColor(camera_image, cv2.COLOR_GRAY2RGB)
-        camera_image = cv2.convertScaleAbs(camera_image, alpha=4, beta=0.5)
+        with Timer(name="cv_bridge", filter_strength=40):
+            camera_image = self.cv_bridge.imgmsg_to_cv2(camera_image_msg, desired_encoding='8UC1')
+        with Timer(name="preprocess_image", filter_strength=40):
+            camera_image = cv2.cvtColor(camera_image, cv2.COLOR_GRAY2RGB)
+        with Timer(name="convertScaleAbs", filter_strength=40):
+            camera_image = cv2.convertScaleAbs(camera_image, alpha=4, beta=0.5)
 
         # # Get result
         with Timer(name="prediction", filter_strength=40):
             result = self.model.predict(camera_image)
+            
+        left_lane, center_lane, right_lane = result
+            
+        if self.param.active:
+            left_lane_vec3s = [geometry_msgs.msg.Vector3(x=coord[0], y=coord[1], z=0.0) for coord in left_lane]
+            center_lane_vec3s = [geometry_msgs.msg.Vector3(x=coord[0], y=coord[1], z=0.0) for coord in center_lane]
+            right_lane_vec3s = [geometry_msgs.msg.Vector3(x=coord[0], y=coord[1], z=0.0) for coord in right_lane]
+
+            driving_lane_left_coeff = [0.0, 0.0, 0.0]  # Dummy values, replace with actual coefficients
+            driving_lane_right_coeff = [0.0, 0.0, 0.0]  # Dummy values, replace with actual coefficients
+
+            rospy.logdebug(f"Driving lane left: {driving_lane_left_coeff}")
+            rospy.logdebug(f"Driving lane right: {driving_lane_right_coeff}")
+            self.result_publisher.publish(
+                lane_detection_ai.msg.LaneDetectionResult(
+                    left=lane_detection_ai.msg.Lane(left_lane_vec3s, len(left_lane_vec3s) > 0),
+                    center=lane_detection_ai.msg.Lane(center_lane_vec3s, len(center_lane_vec3s) > 0),
+                    right=lane_detection_ai.msg.Lane(right_lane_vec3s, len(right_lane_vec3s) > 0),
+                    trajectory_left=geometry_msgs.msg.Vector3(x=driving_lane_left_coeff[0],
+                                                              y=driving_lane_left_coeff[1],
+                                                              z=driving_lane_left_coeff[2]),
+                    trajectory_right=geometry_msgs.msg.Vector3(x=driving_lane_right_coeff[0],
+                                                               y=driving_lane_right_coeff[1],
+                                                               z=driving_lane_right_coeff[2]),
+                )
+            )
+
+
+
+            
+        camera_image = self.model.preprocess_image(camera_image)
 
         with Timer(name="debug_image", filter_strength=40):
             if self.param.debug:
@@ -125,7 +161,6 @@ class LaneDetectionAiNode(node_base.NodeBase):
                 self.debug_image_publisher.publish(
                     self.cv_bridge.cv2_to_imgmsg(debug_image, encoding='rgb8')
                 )
-
         timer.stop()
         timer.print()
 
