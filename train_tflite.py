@@ -12,6 +12,8 @@ import tensorflow_datasets as tfds
 from models import AlphaLaneModel
 from losses import LaneLoss
 import time
+import keras
+from eval import LaneDetectionEval
 
 
 def augment_image(image_label, seed):
@@ -37,7 +39,9 @@ if __name__ == '__main__':
     # enable memory growth to prevent out of memory when training
     physical_devices = tf.config.list_physical_devices('GPU')
     assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
-    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+    for device in physical_devices:
+        tf.config.experimental.set_memory_growth(device, True)
+    # tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
     # set path of training data
     train_dataset_path = "/mnt/c/Users/inf21034/source/IMG_ROOTS/1280x960_CVATROOT/train_set"
@@ -75,35 +79,39 @@ if __name__ == '__main__':
     # train_batches = train_batches.shuffle(1000).batch(batch_size)
     # print("Training batches: ", list(train_batches.as_numpy_iterator()))
 
-    valid_batches = tfds.load('cvat_dataset', split='test', shuffle_files=True, as_supervised=True)
+    valid_batches: tf.data.Dataset = tfds.load('cvat_dataset', split='test', shuffle_files=True, as_supervised=True)
     # valid_batches = valid_batches.prefetch(tf.data.experimental.AUTOTUNE)
     # datasets.TusimpleLane(test_dataset_path, test_label_set, config, augmentation=False).get_pipe()
     valid_batches = valid_batches.batch(1)
 
     # tf.debugging.disable_traceback_filtering()
     # create model
-    model: tf.keras.Model = AlphaLaneModel(net_input_img_size, x_anchors, y_anchors,
-                                           training=True,
-                                           name='AlphaLaneNet',
-                                           input_batch_size=batch_size)
+    model: keras.Model = AlphaLaneModel(net_input_img_size, x_anchors, y_anchors,
+                                        training=True,
+                                        name='AlphaLaneNet',
+                                        input_batch_size=batch_size)
     model.summary()
 
     # Enable to load weights from previous training.
     # model.load_weights(tf.train.latest_checkpoint(checkpoint_path))     # load p/retrained
 
     # set path of checkpoint
-    model.compile(optimizer=tf.keras.optimizers.Nadam(learning_rate=0.001),
+    ln_scheduler = keras.optimizers.schedules.ExponentialDecay(0.001, 1000, 0.9)
+    early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, verbose=1)
+    model.compile(optimizer=keras.optimizers.Nadam(learning_rate=ln_scheduler),
                   loss=[LaneLoss()],
                   run_eagerly=False)
+    # metrics=[LaneDetectionEval.local_f1])
 
     checkpoint_path = os.path.join(checkpoint_path, "ccp-{epoch:04d}.ckpt")
-    cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_path,
-                                                     verbose=1,
-                                                     save_weights_only=True,
-                                                     period=5)
+    cp_callback = keras.callbacks.ModelCheckpoint(filepath=checkpoint_path,
+                                                  verbose=1,
+                                                  save_weights_only=True,
+                                                  save_freq='epoch')
     # start train
     history = model.fit(train_batches,
-                        callbacks=[cp_callback],
+                        validation_data=valid_batches,
+                        callbacks=[cp_callback, early_stopping],
                         epochs=200)
 
     print("Training finish ...")
