@@ -9,11 +9,14 @@ import sys
 import cv2
 import os
 import math
+import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
 
 cnt_unique = 0
 
 imagecnt = 0
+
+CVAT_READER = True
 class Builder(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for cvat_dataset dataset."""
 
@@ -23,6 +26,7 @@ class Builder(tfds.core.GeneratorBasedBuilder):
     }
 
     DRIVE = "C:" if os.name == "nt" else "/mnt/c"
+
     def _info(self) -> tfds.core.DatasetInfo:
         """Returns the dataset metadata."""
         return self.dataset_info_from_configs(
@@ -71,9 +75,8 @@ class Builder(tfds.core.GeneratorBasedBuilder):
             map_y_list = tf.constant(map_y_list)
             perspective_infos[date] = (H_list, map_x_list, map_y_list)
 
-
-        for image_ary, label_lanes, label_h_samples, refIdx, day_of_recording in _data_reader(path, label_data_name,
-                                                                            augmentation_deg):
+        for image_ary, lanes_x_vals, lanes_y_vals, refIdx, day_of_recording in _data_reader(path, label_data_name,
+                                                                                              augmentation_deg):
             # Generate a unique key for each example
 
             # if "12" not in day_of_recording:
@@ -85,8 +88,8 @@ class Builder(tfds.core.GeneratorBasedBuilder):
             H_list, map_x_list, map_y_list = perspective_infos[day_of_recording]
             cutoffs = config["perspective_info"][day_of_recording]["cutoffs"]
             img, label = _map_projection_data_generator(image_ary,
-                                                        label_lanes,
-                                                        label_h_samples,
+                                                        lanes_x_vals,
+                                                        lanes_y_vals,
                                                         net_input_img_size,
                                                         x_anchors,
                                                         y_anchors,
@@ -144,6 +147,39 @@ def _data_reader(dataset_path,
             else:
                 for refIdx in range(len(augmentation_deg)):
                     yield image_ary, label_lanes, label_h_samples, refIdx, day_of_recording
+
+
+def _data_reader_cvat(dataset_path: str,
+                      label_data_name: str,
+                      augmentation_deg: list[float]):
+    print("Load data from ", dataset_path, label_data_name)
+    label_data_path = os.path.join(dataset_path, label_data_name)
+    if not os.path.exists(label_data_path):
+        print("Label file doesn't exist, path : ", label_data_path)
+        sys.exit(0)
+
+    tree = ET.parse(label_data_path)
+    root = tree.getroot()
+
+    for image in root.findall('image'):
+        y_coordinates = []
+        x_coordinates = []
+        day_of_recording = image.attrib['name'][0:10]
+        image_path = str(os.path.join(str(dataset_path), str(image.attrib['name'])))
+        with Image.open(image_path) as img:
+            image_ary = np.asarray(img)
+        for polyline in image.findall('polyline'):
+            points = polyline.attrib['points'].split(";")
+            for point in points:
+                point = point.split(',')
+                x_coordinates.append(int(point[0]))
+                y_coordinates.append(int(point[1]))
+
+        if augmentation_deg is None:
+            yield image_ary, x_coordinates, y_coordinates, 0
+        else:
+            for refIdx in range(len(augmentation_deg)):
+                yield image_ary, x_coordinates, y_coordinates, refIdx, day_of_recording
 
 
 def create_map(config, day_of_recording: str,
@@ -240,7 +276,7 @@ def create_map(config, day_of_recording: str,
 
 
 def _map_projection_data_generator(src_image,
-                                   label_lanes,
+                                   lanes_x_vals,
                                    label_h_samples,
                                    net_input_img_size,
                                    x_anchors,
@@ -260,31 +296,31 @@ def _map_projection_data_generator(src_image,
     #     for sz in range(len(label_h_samples)):
     #         cv2.circle(src_img_cpy, (int(l[sz]), int(label_h_samples[sz])), 2, (0, 255, 0), -1)
 
-    # gImg = cv2.remap(src_image, np.array(map_x), np.array(map_y),
+    # bev_img = cv2.remap(src_image, np.array(map_x), np.array(map_y),
     #                  interpolation=cv2.INTER_NEAREST,
     #                  borderValue=(125, 125, 125))
 
     # Multiplying the transformation matrix with an identity matrix in numpy transforms the "Eager Tensor" to a numpy array
     # cv2.warpPerspective() requires a numpy array as input and will fail on an "Eager Tensor"
-    gImg = cv2.warpPerspective(src_image, np.matmul(H, np.eye(3, 3)), (1280, 960), flags=cv2.INTER_LINEAR,)
+    bev_img = cv2.warpPerspective(src_image, np.matmul(H, np.eye(3, 3)), (1280, 960), flags=cv2.INTER_LINEAR, )
 
     l_c, r_c, u_c, d_c = cutoffs
-    gImg = gImg[u_c:d_c, l_c:r_c]
-    gImg = cv2.resize(gImg, (net_input_img_size[1], net_input_img_size[0]))
+    bev_img = bev_img[u_c:d_c, l_c:r_c]
+    bev_img = cv2.resize(bev_img, (net_input_img_size[1], net_input_img_size[0]))
 
     #################################
-    # t_height, t_width = gImg.shape[:2]
+    # t_height, t_width = bev_img.shape[:2]
     grid_size = 32
     # for x in range(0, t_width, t_width // grid_size):
-    #     cv2.line(gImg, (x, 0), (x, t_height), (255, 0, 0), 1)  # Blue lines
+    #     cv2.line(bev_img, (x, 0), (x, t_height), (255, 0, 0), 1)  # Blue lines
     #
     # for y in range(0, t_height, t_height // grid_size):
-    #     cv2.line(gImg, (0, y), (t_width, y), (255, 0, 0), 1)  # Blue lines
+    #     cv2.line(bev_img, (0, y), (t_width, y), (255, 0, 0), 1)  # Blue lines
 
     #################################
 
-    imgf = np.float32(gImg) * (1.0 / 255.0)
-    # cv2.imwrite("test.jpg", gImg)
+    bev_imgf = np.float32(bev_img) * (1.0 / 255.0)
+    # cv2.imwrite("test.jpg", bev_img)
 
     # create label for class
     class_list = {'background': [0, 1],
@@ -300,7 +336,7 @@ def _map_projection_data_generator(src_image,
     offset_dim = 1
     instance_label_dim = 1
     label = np.zeros((y_anchors, x_anchors, class_count + offset_dim + instance_label_dim), dtype=np.float32)
-    acc_count = np.zeros((y_anchors, x_anchors, class_count + offset_dim), dtype=np.float32)
+    label_exists = np.zeros((y_anchors, x_anchors, class_count + offset_dim), dtype=np.float32)
     class_idx = 0
     x_offset_idx = class_count
     instance_label_idx = class_count + offset_dim
@@ -313,103 +349,104 @@ def _map_projection_data_generator(src_image,
     anchor_scale_x = float(x_anchors) / float(groundSize[1])
     anchor_scale_y = float(y_anchors) / float(groundSize[0])
 
-
     # bool to indicate if any lane has been added. if no lane has been added, return none
     lane_added = False
     # calculate anchor offsets
-    for laneIdx in range(min(len(label_lanes), max_lane_count)):
-        lane_data = label_lanes[laneIdx]
+    for laneIdx in range(min(len(lanes_x_vals), max_lane_count)):
+        lane_x_vals = lanes_x_vals[laneIdx]
 
-        prev_gx = None
-        prev_gy = None
-        prev_ax = None
-        prev_ay = None
-        for idx in range(len(lane_data)):
-            dy = label_h_samples[idx]
-            dx = lane_data[idx]
+        prev_bev_x = None
+        prev_bev_y = None
+        prev_x_anchor = None
+        prev_y_anchor = None
+        for idx in range(len(lane_x_vals)):
+            source_y = label_h_samples[idx]
+            source_x = lane_x_vals[idx]
 
-            if dx < 0:
+            if source_x < 0:
                 continue
 
-            # do perspective transform at dx, dy
-            gx, gy, gz = np.matmul(H, [[dx], [dy], [1.0]])
+            # do perspective transform at source_x, source_y
+            bev_x, bev_y, gz = np.matmul(H, [[source_x], [source_y], [1.0]])
             if gz == 0:
                 continue
 
             # conver to anchor coordinate(grid)
-            gx = int(gx / gz)
-            gy = int(gy / gz)
-            resized = _resize_transformed_labels((gx, gy),
+            bev_x = int(bev_x / gz)
+            bev_y = int(bev_y / gz)
+            resized = _resize_transformed_labels((bev_x, bev_y),
                                                  (width, height),
                                                  (400, 400),
                                                  (net_input_img_size[0], net_input_img_size[1]),
                                                  cutoffs=cutoffs)
             if resized is None:
                 continue
-            gx, gy = resized
-            cv2.circle(gImg, (int(gx), int(gy)), 2, (0, 255, 0), -1)
-            if gx < 0 or gy < 0 or gx >= (groundSize[1] - 1) or gy >= (groundSize[0] - 1):
+            bev_x, bev_y = resized
+            cv2.circle(bev_img, (int(bev_x), int(bev_y)), 2, (0, 255, 0), -1)
+            if bev_x < 0 or bev_y < 0 or bev_x >= (groundSize[1] - 1) or bev_y >= (groundSize[0] - 1):
                 continue
 
-            ax = int(gx * anchor_scale_x)
-            ay = int(gy * anchor_scale_y)
+            x_anchor: int = int(bev_x * anchor_scale_x)
+            y_anchor: int = int(bev_y * anchor_scale_y)
 
-            if ax < 0 or ay < 0 or ax >= (x_anchors - 1) or ay >= (y_anchors - 1):
+            if x_anchor < 0 or y_anchor < 0 or x_anchor >= (x_anchors - 1) or y_anchor >= (y_anchors - 1):
                 continue
 
             instance_label_value = (laneIdx + 1.0) * 50
-            label[ay][ax][class_idx:class_idx + class_count] = class_list['lane_marking']
+            label[y_anchor][x_anchor][class_idx:class_idx + class_count] = class_list['lane_marking']
 
             # do line interpolation to padding label data for perspectived coordinate.
-            if prev_gx is None:
-                prev_gx = gx
-                prev_gy = gy
-                prev_ax = ax
-                prev_ay = ay
+            if prev_bev_x is None:
+                prev_bev_x = bev_x
+                prev_bev_y = bev_y
+                prev_x_anchor = x_anchor
+                prev_y_anchor = y_anchor
             else:
-                if abs(ay - prev_ay) <= 1:
-                    if acc_count[ay][ax][x_offset_idx] > 0:
+                if abs(y_anchor - prev_y_anchor) <= 1:
+                    # skip if the point is already added; might happen due to interpolation or if lanes intersect
+                    if label_exists[y_anchor][x_anchor][x_offset_idx] > 0:
                         continue
-                    offset = gx - (ax / anchor_scale_x)
-                    label[ay][ax][x_offset_idx] += math.log(offset + 0.0001)
-                    label[ay][ax][instance_label_idx] = instance_label_value
-                    acc_count[ay][ax][x_offset_idx] = 1
+                    offset = bev_x - (x_anchor / anchor_scale_x)
+                    label[y_anchor][x_anchor][x_offset_idx] += math.log(offset + 0.0001)
+                    label[y_anchor][x_anchor][instance_label_idx] = instance_label_value
+                    label_exists[y_anchor][x_anchor][x_offset_idx] = 1
                     lane_added = True
                 else:
-                    gA = np.array([prev_gx, prev_gy])
-                    gB = np.array([gx, gy])
-                    gLen = float(np.linalg.norm(gA - gB))
+                    previous_point = np.array([prev_bev_x, prev_bev_y])
+                    current_point = np.array([bev_x, bev_y])
+                    prev2curr_distance = float(np.linalg.norm(previous_point - current_point))
 
-                    gV = (gA - gB) / gLen
+                    normalized_direction_vec = (previous_point - current_point) / prev2curr_distance
 
-                    inter_len = min(max(int(abs(prev_gy - gy)), 1), 10)
-                    for dy in range(inter_len):
-                        gC = gB + gV * (float(dy) / float(inter_len)) * gLen
+                    inter_len = min(max(int(abs(prev_bev_y - bev_y)), 1), 10)
+                    for source_y in range(inter_len):
+                        interpolated_point = (current_point + normalized_direction_vec *
+                                              (float(source_y) / float(inter_len)) * prev2curr_distance)
 
-                        ax = np.int32(gC[0] * anchor_scale_x)
-                        ay = np.int32(gC[1] * anchor_scale_y)
+                        x_anchor = np.int32(interpolated_point[0] * anchor_scale_x)
+                        y_anchor = np.int32(interpolated_point[1] * anchor_scale_y)
 
-                        if acc_count[ay][ax][x_offset_idx] > 0:
+                        if label_exists[y_anchor][x_anchor][x_offset_idx] > 0:
                             continue
 
-                        offset = gC[0] - (ax / anchor_scale_x)
-                        label[ay][ax][x_offset_idx] += math.log(offset + 0.0001)
-                        label[ay][ax][class_idx:class_idx + class_count] = class_list['lane_marking']
-                        label[ay][ax][instance_label_idx] = instance_label_value
-                        acc_count[ay][ax][x_offset_idx] = 1
+                        offset = interpolated_point[0] - (x_anchor / anchor_scale_x)
+                        label[y_anchor][x_anchor][x_offset_idx] += math.log(offset + 0.0001)
+                        label[y_anchor][x_anchor][class_idx:class_idx + class_count] = class_list['lane_marking']
+                        label[y_anchor][x_anchor][instance_label_idx] = instance_label_value
+                        label_exists[y_anchor][x_anchor][x_offset_idx] = 1
                         lane_added = True
 
-                prev_gx = gx
-                prev_gy = gy
-                prev_ax = ax
-                prev_ay = ay
+                prev_bev_x = bev_x
+                prev_bev_y = bev_y
+                prev_x_anchor = x_anchor
+                prev_y_anchor = y_anchor
     # global imagecnt
     # with open(f"images/outpt_imgs/{imagecnt:03d}.jpg", "wb") as f:
-    #     f.write(cv2.imencode('.jpg', gImg)[1])
+    #     f.write(cv2.imencode('.jpg', bev_img)[1])
     # imagecnt += 1
     if not lane_added:
         return None, None
-    return imgf, label
+    return bev_imgf, label
 
 
 def _resize_transformed_labels(label, previous_shape, cutoff_shape, resize_shape, cutoffs):
@@ -417,8 +454,8 @@ def _resize_transformed_labels(label, previous_shape, cutoff_shape, resize_shape
     Resize the transformed label to the desired shape
     :param label: label to resize
     """
-    c_width, c_height  = cutoff_shape[:2]
-    r_width, r_height  = resize_shape[:2]
+    c_width, c_height = cutoff_shape[:2]
+    r_width, r_height = resize_shape[:2]
     p_width, p_height = previous_shape[:2]
     x_l_cutoff, x_r_cutoff, y_u_cutoff, y_d_cutoff = cutoffs
 
@@ -432,6 +469,6 @@ def _resize_transformed_labels(label, previous_shape, cutoff_shape, resize_shape
     else:
         return None
 
-    label = (label[0] * r_width // c_width ,
-             label[1] * r_height // c_height )
+    label = (label[0] * r_width // c_width,
+             label[1] * r_height // c_height)
     return label
