@@ -25,7 +25,6 @@ class CVATDataset:
         self.images.append(image)
 
     def to_tusimple(self):
-        # set y_samples
         for image in self.images:
             if not image.annotations:
                 print("No annotations for image")
@@ -37,23 +36,6 @@ class CVATDataset:
                 self.max_y = max_y
         steps = (self.max_y - self.min_y) // 10
         y_samples = np.linspace(self.min_y, self.max_y, steps + 1, dtype=np.int32)
-
-        # print("Height: " + str(self.images[0].image_height))
-        #
-        # height = self.images[0].image_height
-        #
-        # tens = int(height) // 10
-        # print("Tens: " + str(tens))
-        #
-        # tens_twenty_percent = tens // 5
-        # print("Tens twenty percent: " + str(tens_twenty_percent))
-        #
-        # minimal_start = tens_twenty_percent * 10
-        # print("Minimal start: " + str(minimal_start))
-        #
-        # print( tens - tens_twenty_percent +1)
-        #
-        # y_samples = np.linspace(minimal_start, int(height), tens - tens_twenty_percent +1, dtype=np.int32)
         for image in self.images:
             image.to_tusimple(y_samples)
 
@@ -73,7 +55,7 @@ class CVATImage:
         self.image_path = image_path
         self.min_y = -1
         self.max_y = 0
-        self.annotations: list[CvatOneLane] = []
+        self.annotations: list[CVATAnnotation] = []
 
     def add_annotation(self, annotation):
         self.annotations.append(annotation)
@@ -92,7 +74,6 @@ class CVATImage:
     def to_tusimple(self, y_samples: np.ndarray):
         self.annotations = sorted(self.annotations, key=lambda x: x.label, reverse=True)
         for annotation in self.annotations:
-            print(annotation.label)
             annotation.to_tusimple(y_samples)
 
     def __str__(self):
@@ -110,7 +91,7 @@ class CVATImage:
         return cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
 
 
-class CvatOneLane:
+class CVATAnnotation:
     def __init__(self, label, points_str, image_width, image_height):
         self.label = label  # "name of lane (left_lane, right_lane or similar); currently unused
         self.max_y: int = 0
@@ -164,81 +145,87 @@ class CvatOneLane:
             self.points.append((int(float(x)), int(float(y))))
 
         border_point = self.add_border_point(self.points[0])
-        # # display the orignal points[0] and the new border point on a white image ( 1280 x 720 )
-        # image = np.zeros((720, 1280, 3), np.uint8)
-        # cv2.circle(image, self.points[0], 5, (0, 255, 0), -1)
-        # if border_point:
-        #     # color red
-        #     cv2.circle(image, border_point, 5, (0, 0, 255), -1)
-        # # show the image in a window
-        # cv2.imshow("image", image)
-        # # wait for the user to press a key
-        # cv2.waitKey(0)
-        # # destroy the window
-        # cv2.destroyAllWindows()
-
         if border_point:
             self.points = [border_point] + self.points
 
+    def check_next_point(self, point, next_point, k):
+        cnt = 2
+        while abs(next_point[1] - point[1]) < 10:
+            # if next_point[1] // 10 < point[1] // 10:
+            #     next_point[1] = next_point[1] - next_point[1] % 10
+            #     point[1] = point[1] - point[1] % 10
+            # else:
+            #     next_point[1] = next_point[1] - next_point[1] % 10
+            #     point[1] = point[1] + 10 - point[1] % 10
+            # left_idx, right_idx = sorted([np.searchsorted(y_samples, point[1]), np.searchsorted(y_samples, next_point[1])])
+            # x_samples[left_idx:right_idx + 1] = np.array([point, next_point]).T[0]
+            # continue
+            self.points[k + cnt - 1] = None
+            next_point = self.points[k + cnt] if k + cnt < len(self.points) else None
+            cnt += 1
+            if next_point is None:
+                break
+        return next_point
+
+    @staticmethod
+    def round_to_ten_and_sort(point: list[int], next_point: list[int]) -> list[list[int]]:
+        """
+        :param point: current point
+        :param next_point: next point
+        :return: left_y, right_y
+        Rounds the y values of the points to the previous multiple of 10 and sorts them.
+        """
+        p, np = [point[0]], [next_point[0]]
+        np.append(next_point[1] - next_point[1] % 10)
+        p.append(point[1] - point[1] % 10)
+        return sorted([p, np], key=lambda x: x[0])
+
+    def generate_x_samples(self, left: tuple[int, int], right: tuple[int, int]) -> tuple[np.ndarray, int, int]:
+        """
+        :param left: left point
+        :param right: right point (the property of being 'left' and 'right' is not used here)
+        :return: x_samples, left_idx, right_idx
+        Interpolates between left and right point and returns the x_samples, left_idx and right_idx.
+        Creates a linear function x = y_1 * y + y_0 and evaluates it for all y in y_samples.
+        """
+        loc_y_samples = np.linspace(min(left[1], right[1]), max(left[1], right[1]), abs(right[1] - left[1]) // 10 + 1,
+                                    dtype=np.int32)
+        loc_y_samples = loc_y_samples[loc_y_samples >= self.min_y]
+        y_1, y_0 = np.polyfit(np.array([left[1], right[1]]), np.array([left[0], right[0]]), 1)
+        left_idx, right_idx = sorted([np.searchsorted(self.y_samples, loc_y_samples[0]),
+                                      np.searchsorted(self.y_samples, loc_y_samples[-1])])
+        return np.polyval([y_1, y_0], loc_y_samples), left_idx, right_idx
+
     def to_tusimple(self, y_samples: np.ndarray):
+        """
+        :param y_samples: y values to be sampled
+        :return: None
+        Converts the CVATAnnotation to a tusimple annotation using linear interpolation.
+        It will always interpolate between two points and then round the y values to the previous multiple of 10.
+
+        """
         self.cut_off_lane()
         x_samples = np.zeros_like(y_samples, dtype=np.int32)
         x_samples = x_samples - 2
         self.y_samples = y_samples
         for k, point in enumerate(self.points):
-            # interpolate between points, so I have for every y_sample an x_value
-            x1, y1 = point
-
             if k == len(self.points) - 1:
-                # round it to clostest ten
-                y1 = round(y1 / 10) * 10
-                # check how often 10 can get into y1
-                how_often = y1 // 10
-                if x_samples[how_often]:
-                    break
-                else:
-                    x_samples[how_often] = x1
-                    break
-
-            if k == 0:
-                if y1 == self.image_height:
-                    x_samples[-1] = x1
-                else:
-                    # round y1 to closest tens
-                    y1 = round(y1 / 10) * 10
-                    # check how often 10 can get into y1
-                    how_often = y1 // 10
-                    # how_often = len(y_samples) - how_often - 1
-                    if how_often >= len(y_samples):
-                        continue
-                    x_samples[how_often] = x1
-
-            x2, y2 = self.points[k + 1]
-
-            if not y2 < y1:
                 break
-
-            if str(y1)[:-1] == str(y2)[:-1]:
-                # skip points because they don't cross a y_sample
+            if not point:
                 continue
-            else:
-                # use polyfit
-                # y = mx + b
-                x_values = [x1, x2]
-                y_values = [y1, y2]
-                m, b = np.polyfit(y_values, x_values, 1)
-
-                for y in range(y2+1, y1+1):
-                    if y % 10 == 0:
-                        # calculate x value for y
-                        x = m * y + b
-                        how_often = y // 10
-
-                        if how_often >= len(y_samples):
-                            continue
-                        # how_often = len(y_samples) - how_often - 1
-                        x_samples[how_often] = x
-
+            point = [int(point[0]), int(point[1])]
+            next_point = self.points[k + 1]
+            next_point = [int(next_point[0]), int(next_point[1])]
+            next_point = self.check_next_point(point, next_point, k)
+            if next_point is None:
+                break
+            # linker und rechter punkt bestimmen+
+            left, right = self.round_to_ten_and_sort(point, next_point)
+            # x in Abhängigkeit von y
+            min_x, max_x = sorted([point[0], next_point[0]])
+            local_x_samples, left_idx, right_idx = self.generate_x_samples(left, right)
+            # make local x samples integers
+            x_samples[left_idx:right_idx + 1] = local_x_samples.astype(np.int32)
         self.x_val = x_samples
 
     def cut_off_lane(self):
@@ -256,11 +243,11 @@ class CvatOneLane:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--annotation_path', required=True, help='The path to the CVAT annotation file')
-    # parser.add_argument('--image_path', required=False, help='The path to the images')
+    parser.add_argument('--image_path', required=False, help='The path to the images')
     args = parser.parse_args()
     annotation_path = args.annotation_path
     annotation_folder = os.path.dirname(annotation_path)
-    # image_path = args.image_path
+    image_path = args.image_path
 
     tree = ET.parse(annotation_path)
     root = tree.getroot()
@@ -276,11 +263,11 @@ def main():
         for polyline in image.findall('polyline'):
             label = polyline.attrib['label']
             points = polyline.attrib['points']
-            annotation = CvatOneLane(label, points, image_width, image_height)
+            annotation = CVATAnnotation(label, points, image_width, image_height)
             cvat_image.add_annotation(annotation)
         dataset.add_image(cvat_image)
     dataset.to_tusimple()
-    dataset.write_to_json(os.path.join(annotation_folder, 'tusimple.json'))
+    dataset.write_to_json(os.path.join(annotation_folder, 'tusimple1.json'))
 
 
 if __name__ == "__main__":
