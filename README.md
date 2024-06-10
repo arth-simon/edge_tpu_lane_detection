@@ -26,6 +26,7 @@ Ben Schlauch and Alwin Zomotor try to bring Edge TPU Lane Detection with this ar
 - Use CVAT or TUSimple labeled images for training
 - Uses Birdseyeview
 - Over 40 FPS on coral tpu inncluding postprocessing on CPU
+- "master" branch for training, "ROS" branch for usage on the competition model car inside a ROS system
 
 <b>The main network architecture</b>:
 ![](images/model_arch.png) 
