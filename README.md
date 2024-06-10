@@ -1,6 +1,11 @@
-# Lane Detector implementation in Keras
+# Lane Detector Fork for SmartRollerz DHBW - Lane Detection on Coral Edge TPU
 
-Lane Detection for the interdisciplinary autonomous driving challenge "Caudri" as part of the Smart Rollerz Team.
+Hello,
+this repository is part of the bigger DHBW Smart Rollerz project (https://dhbw-smartrollerz.org/). We work on a autonmous model car for a interdisciplinary university competition. 
+
+Ben Schlauch and Alwin Zomotor try to bring Edge TPU Lane Detection with this architecture to our car. 
+
+
 
 ## Contents
 - [Lane Detector implementation in Keras](#lane-detector-implementation-in-keras)
@@ -17,16 +22,10 @@ Lane Detection for the interdisciplinary autonomous driving challenge "Caudri" a
 
 
 ## Overview
-A tensorflow learning project to create model for the real-time application about multi lane detector.
-The goal of this project:
-- Learn python and tensorflow
-- Create a model for multi-lane detctor and custom dataset by tensorflow ops
-- Convert to qunatized tf-lite model and try model inferencing at Qualcomm Hexagon DSP (Snapdragon 835/Hexagon 682) in real-time.
-
-Instead detecting lane from source camera image, i try to transform image by perspective matrix first, and detect lane from perspective image.
-The reasons to do that:
-- Keep different camera type or camera installation have similar image style.
-- Constraint the lane region of detection to reduce input image size of model.
+- Create a model for multi-lane detctor that runs on Coral Edge TPU
+- Use CVAT or TUSimple labeled images for training
+- Uses Birdseyeview
+- Over 40 FPS on coral tpu inncluding postprocessing on CPU
 
 <b>The main network architecture</b>:
 ![](images/model_arch.png) 
@@ -54,27 +53,20 @@ The reasons to do that:
 ## How to use it
 
 ### Training
-1. We use <b>"TuSimple Lane Detection Challenge"</b> dataset for training, please download dataset from [TuSimple github](https://github.com/TuSimple/tusimple-benchmark/tree/master/doc/lane_detection), and decompress as following directory structure:
-     - ${DatasetsPath}/train_set/
-       - clips/
-       - label_data_0313.json
-       - ...
-     - ${DatasetsPath}/test_set
-       - clips/
-       - test_tasks_0627.json
-       - ...
-
-2. Modify the element <b>TuSimple_dataset_path</b> at config.json by your environment, 
+1. Dataset Creation: @Alwin please explain. We want to generate a train, validation and test set. 
+2. Modify the element <b>TuSimple_dataset_path</b> at config.json by your environment,
 3. run <b>train_tflite.py</b> for training
 
         > python3 train_tflite.py
 
-### TF-Lite model convertion
+### TF-Lite model convertion and Edge TPU Compiler
 Once the training finish, we must convert model as TF-Lite model for mobile platform. Please run <b>generate_tflite_model.py</b> to convert model, the converted model is named same as element <b>"tflite_model_name"</b> at config.json.
 
     > python3 generate_tflite_model.py
 
-<b>Note</b> : Even though tf-2.0 use new convertor(MLIR converter?) as default to convert tf-lite model, but our model will face many problem when convertng, such as convert finish but allocat_tensor error, or double Dequnatize node error. To go through the convertion for learning, i set converter.experimental_new_converter as False at Tensorflow 2.4.0-dev20200815
+Once the TFlite model is created, we need to use the edge tpu compiler to generate a model compatibel with the Coral. Please note you need to set the experimental and undocumented "a" flag because of the subgraphs 
+
+    > edgetpu_compiler -a [modelpath...]
 
 
 ### Test the model
@@ -82,39 +74,23 @@ Once the training finish, we must convert model as TF-Lite model for mobile plat
 
     > python3 test_tflite_model.py
 
-The description about Post-processor is shown as following. In default, i set <b>with_post_process</b> as False to disable post-processor and rendering the default output. Enable this flag if you need post-process.
+There is also a file to test the edge tpu model
 
-The goal of post-process step after inferencing is removing the data at rows where the variance of x offset large than threshold, such as following image with 32x32 anchors at 256x256 images, with post-process and threshold as 10 (pixel), anchors at area A will be reserved and averaged as final output. anchors at area B will be removed due to variance at row out of threshold
-
-
+Postprocessing looks like this:
 ![](images/post_process_at_test.png) 
 
 
-### TF-lite Hexagon Delegate test (Snapdragon 835/Hexagon 682)
-Following image shown the result which run <b>benchmark_model</b> at HTC U11+ (Snapdragon 835/Hexagon 682):
-> ./benchmark_model --graph=model_quant.tflite  --use_hexagon=true
-> ![](images/benchmark_model.png) 
-
-> ./benchmark_model --graph=model_quant.tflite  --use_hexagon=true --enable_op_profiling=true
->![](images/benchmark_model_with_op_profiling.png) 
-
+### Final results
+On our proprietary dataset, our latest model for the Edge Tpu performed with XXX. 
 
 ### TODO
-- Model
-  - Add curve fitting at post process
-- Android
-  - Open camera/video and get image data.
-  - Implement perspective transformation by openGL/ES PBO to transform image for model inference
-  - Rendering inference result
+-..........
 
 
 
 ### References
-- [Towards End-to-End Lane Detection: an Instance Segmentation Approach](https://arxiv.org/abs/1802.05591)
-- [Semantic Instance Segmentation with a Discriminative Loss Function](https://arxiv.org/abs/1708.02551)
-- [github : LaneNet-Lane-Detection](https://github.com/MaybeShewill-CV/lanenet-lane-detection)
-- [github : SSD: Single-Shot MultiBox Detector implementation in Keras](https://github.com/pierluigiferrari/ssd_keras#overview)
-- [github : Instance Segmentation with a Discriminative Loss Function](https://github.com/hq-jiang/instance-segmentation-with-discriminative-loss-tensorflow)
+- Please check out the original repository. https://github.com/ML-Cai/LaneDetector
+- We wrote a 80 page very detailed documentation of our project and also in depth about this architecture and our optimizations and struggles. For more information, please message me. 
 
 
 
