@@ -3,7 +3,7 @@
 Hello,
 this repository is part of the bigger DHBW Smart Rollerz project (https://dhbw-smartrollerz.org/). We work on a autonmous model car for a interdisciplinary university competition. 
 
-Ben Schlauch and Alwin Zomotor try to bring Edge TPU Lane Detection with this architecture to our car. 
+Ben Schlauch and Alwin Zomotor try to bring Edge TPU Lane Detection with this architecture to the SmartRollerz car. 
 
 
 
