@@ -13,10 +13,11 @@ from datasets import TusimpleLane
 from eval import LaneDetectionEval
 from tqdm import tqdm
 import pickle
-from pycoral.utils import edgetpu
+#from pycoral.utils import edgetpu
 import atexit
 import time
 
+VISUALIZE = False
 
 def del_interpreter(interpreter):
     del interpreter
@@ -25,7 +26,7 @@ def del_interpreter(interpreter):
 
 def augment_image(image_label, seed):
     image, label = image_label
-    image = tf.image.stateless_random_brightness(image, 0.1, seed=seed)
+    image = tf.image.stateless_random_brightness(image, 0.15, seed=seed)
     image = tf.image.stateless_random_contrast(image, 0.2, 0.85, seed=seed)
     # image = tf.image.random_flip_left_right(image)
     return image, label
@@ -52,7 +53,7 @@ def tflite_image_test(tflite_model_quant_file,
         image, label = augment_image((image, label), seed)
         return image, label
 
-    dataset = dataset.map(f, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    # dataset = dataset.map(f, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     # get index of inputs and outputs
     input_index = interpreter.get_input_details()[0]
@@ -83,8 +84,8 @@ def tflite_image_test(tflite_model_quant_file,
                         total=len(dataset)):  # tqdm(enumerate(files), desc="creating images", total=len(files)):
         test_img = elem[0]  # np.zeros((1, 256, 256, 3), dtype=np.uint8)
         # tmp_img = cv2.imread("../../source/IMG_ROOTS/1280x960_ROSBAGS/images/" + elem) # elem[0]
-        test_label = elem[1]
-
+        test_label = elem[1]  # np.zeros((1, 32, 32, 1), dtype=np.float32)
+        # t_label = test_label[0]
         # if mtx is not None:
         #     tmp_img = cv2.warpPerspective(tmp_img, mtx, (1280, 960))
 
@@ -102,7 +103,7 @@ def tflite_image_test(tflite_model_quant_file,
         offsets = interpreter.get_tensor(output_index_offsets["index"])
         # anchor_axis = interpreter.get_tensor(output_index_anchor_axis["index"])
 
-        print(f"instance: {instance.shape}, offsets: {offsets.shape}, anchor_axis: {anchor_axis.shape}")
+        #print(f"instance: {instance.shape}, offsets: {offsets.shape}, anchor_axis: {anchor_axis.shape}")
 
         correct, predicted, ground_truth = LaneDetectionEval.evaluate_predictions(
             (instance, offsets, anchor_axis),
@@ -116,10 +117,12 @@ def tflite_image_test(tflite_model_quant_file,
             2 * precision_by_frame[-1] * recall_by_frame[-1] / (precision_by_frame[-1] + recall_by_frame[-1])
             if precision_by_frame[-1] + recall_by_frame[-1] > 0 else 0)
 
+        if not VISUALIZE:
+            continue
         # convert image to gray 
         main_img = cv2.cvtColor(test_img[0], cv2.COLOR_BGR2GRAY)
         main_img = cv2.cvtColor(main_img, cv2.COLOR_GRAY2BGR)
-        print(np.median(offsets[0, :, :, 0]))
+        #print(np.median(offsets[0, :, :, 0]))
         # sys.exit(0)
         # post processing
         if not with_post_process:
@@ -135,49 +138,36 @@ def tflite_image_test(tflite_model_quant_file,
                         if instance_prob > 0.5:  # 0.5:
                             cv2.circle(main_img, (int(gx), int(gy)), 2, tuple(int(x) for x in COLORS[instanceIdx]))
         else:
-            # Check the variance of anchors by row, ideally, we want each row of instance containt only 
-            # zero or one valid anchor to identify instance of lane, but in some case, over one instance 
-            # at same row would happened. In this step, we filter anchors at each row by the x variance.
             instance = tf.convert_to_tensor(instance)
             offsets = tf.convert_to_tensor(offsets)
             anchor_axis = tf.convert_to_tensor(anchor_axis)
+
+            offsets = tf.exp(offsets)
 
             anchor_x_axis = anchor_axis[:, :, :, 0]
             anchor_y_axis = anchor_axis[:, :, :, 1]
             anchor_x_axis = tf.expand_dims(anchor_x_axis, axis=-1)
             anchor_y_axis = tf.expand_dims(anchor_y_axis, axis=-1)
 
-            # create 0/1 mask by instance
-            instance = tf.where(instance > 0.5,
-                                tf.constant([1.0], tf.float32),
-                                tf.constant([0.0], tf.float32))
+            instance = tf.where(instance > 0.5, 1.0, 0.0)
 
-            # mux x anchors and offsets by instance, the reason why y anchors doesn't need to
-            # multiplied by instance is that y anchors doesn't join the calcuation of following
-            # steps about "variance threshold by row"
             anchor_x_axis = tf.add(anchor_x_axis, offsets)
-            anchor_x_axis = tf.multiply(anchor_x_axis, instance)  # [batch, y_anchors, x_anchors, max_instance_count]
+            anchor_x_axis = tf.multiply(anchor_x_axis, instance)
 
-            # get mean of x axis
             sum_of_instance_row = tf.reduce_sum(instance, axis=2)
             sum_of_x_axis = tf.reduce_sum(anchor_x_axis, axis=2)
             mean_of_x_axis = tf.math.divide_no_nan(sum_of_x_axis, sum_of_instance_row)
             mean_of_x_axis = tf.expand_dims(mean_of_x_axis, axis=2)
             mean_of_x_axis = tf.tile(mean_of_x_axis, [1, 1, x_anchors, 1])
 
-            # create mask for threshold
             X_VARIANCE_THRESHOLD = 10.0
             diff_of_axis_x = tf.abs(tf.subtract(anchor_x_axis, mean_of_x_axis))
-            mask_of_mean_offset = tf.where(diff_of_axis_x < X_VARIANCE_THRESHOLD,
-                                           tf.constant([1.0], tf.float32),
-                                           tf.constant([0.0], tf.float32))
+            mask_of_mean_offset = tf.where(diff_of_axis_x < X_VARIANCE_THRESHOLD, 1.0, 0.0)
 
-            # do threshold
             instance = tf.multiply(mask_of_mean_offset, instance)
             anchor_x_axis = tf.multiply(mask_of_mean_offset, anchor_x_axis)
             anchor_y_axis = tf.multiply(mask_of_mean_offset, anchor_y_axis)
 
-            # average anchors by row
             sum_of_instance_row = tf.reduce_sum(instance, axis=2)
             sum_of_x_axis = tf.reduce_sum(anchor_x_axis, axis=2)
             mean_of_x_axis = tf.math.divide_no_nan(sum_of_x_axis, sum_of_instance_row)
@@ -185,15 +175,21 @@ def tflite_image_test(tflite_model_quant_file,
             sum_of_y_axis = tf.reduce_sum(anchor_y_axis, axis=2)
             mean_of_y_axis = tf.math.divide_no_nan(sum_of_y_axis, sum_of_instance_row)
 
-            # rendering
+            lanes = [[] for _ in range(max_instance_count)]
             for instanceIdx in range(max_instance_count):
-                for dy in range(y_anchors):
-                    instance_prob = sum_of_instance_row[0, dy, instanceIdx]
-                    gx = mean_of_x_axis[0, dy, instanceIdx]
-                    gy = mean_of_y_axis[0, dy, instanceIdx]
+                instance_mask = sum_of_instance_row[0, :, instanceIdx] > 0.5
+                gx_filtered = tf.boolean_mask(mean_of_x_axis[0, :, instanceIdx], instance_mask)
+                gy_filtered = tf.boolean_mask(mean_of_y_axis[0, :, instanceIdx], instance_mask)
 
-                    if instance_prob > 0.5:
-                        cv2.circle(main_img, (int(gx), int(gy)), 2, tuple(int(x) for x in COLORS[instanceIdx]))
+                if len(gx_filtered) > 0:
+                    gx_list = gx_filtered.numpy()
+                    gy_list = gy_filtered.numpy()
+
+                    current_lane = np.stack((gx_list, gy_list), axis=-1)
+                    lanes[instanceIdx] = [(coord) for coord in current_lane]
+            for lanes, color in zip(lanes, COLORS):
+                for i in range(len(lanes) - 1):
+                    cv2.circle(main_img, (int(lanes[i][0]), int(lanes[i][1])), 2, color)
 
         # redering output image
         target_szie = (1000, 1000)
@@ -205,9 +201,20 @@ def tflite_image_test(tflite_model_quant_file,
             for dx in range(x_anchors):
                 px = (inv_dx * dx) * target_szie[0]
                 py = (inv_dy * dy) * target_szie[1]
+                # also draw points for ground truth data but in different strength
                 cv2.line(main_img, (int(px), 0), (int(px), target_szie[1]), (125, 125, 125))
                 cv2.line(main_img, (0, int(py)), (target_szie[0], int(py)), (125, 125, 125))
+        for y in range(y_anchors):
+            for x in range(x_anchors):
+                if test_label[0, y, x, 0] == 0:
+                    continue
+                offset = test_label[0, y, x, 2]
+                gx = anchor_axis[0, y, x, 0] + tf.exp(offset) - 0.0001
+                gy = anchor_axis[0, y, x, 1]
+                cv2.circle(main_img, (int(gx * target_szie[0] / 256), int(gy * target_szie[0] / 256)), 2, (125, 125, 255), 2, 2)
 
+            # for i in range(len(label) - 1):
+            #    cv2.circle(main_img, (int(label[i][0] + label[i][0][2]), int(label[i][1])), 2, (255, 255, 255))
         cv2.imshow("result", main_img)
         cv2.waitKey(0)
         # print(f"writing image: {k:03d}")
@@ -260,31 +267,35 @@ if __name__ == '__main__':
     #                                       test_label_set,
     #                                       config,
     #                                       augmentation=False).get_pipe()
-    valid_batches = tfds.load('cvat_dataset', split='test', shuffle_files=False, as_supervised=True)
+    valid_batches = tfds.load('cvat_dataset:1.4.10', split='validation', shuffle_files=False, as_supervised=True)
     # TusimpleLane(test_dataset_path, test_label_set, config).get_pipe()
     # tfds.load('cvat_dataset', split='test', shuffle_files=True, as_supervised=True)
     valid_batches = valid_batches.batch(1)
+    hyper_batch = "dyn_aug2"
 
     print("---------------------------------------------------")
     print("Load model as TF-Lite and test")
     print("---------------------------------------------------")
-    precision, recall, f1 = tflite_image_test(tflite_model_name, valid_batches, False, mtx)
+    precision, recall, f1 = tflite_image_test(tflite_model_name, valid_batches, True, mtx)
+    print("---------------------------------------------------")
+    print(f"{precision[-1]=}, {recall[-1]=}, {f1[-1]=}")
+    sys.exit(0)
     # accs_t, accs_fp, accs_fn = tflite_image_test(tflite_model_name, valid_batches, True, mtx)
     plt.plot(range(len(precision)), precision, 'm--')
     plt.xlabel("frames")
     plt.ylabel("Precision")
     plt.title("Average Precision of lane detection")
-    plt.savefig("images/precision.png")
+    plt.savefig(f"images/precision_{hyper_batch}.png")
     plt.clf()
     plt.plot(range(len(recall)), recall, 'm--')
     plt.xlabel("frames")
     plt.ylabel("Recall")
     plt.title("Average Recall of lane detection")
-    plt.savefig("images/recall.png")
+    plt.savefig(f"images/recall_{hyper_batch}.png")
     plt.clf()
     plt.plot(range(len(f1)), f1, 'm--')
     plt.xlabel("frames")
     plt.ylabel("F1")
-    plt.title("Average F1 Score of lane detection")
-    plt.savefig("images/F1.png")
+    plt.title("Durchschnittlicher F1-Score der Fahrspurerkennung")
+    plt.savefig(f"images/F1_{hyper_batch}.png")
     plt.clf()
