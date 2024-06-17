@@ -135,6 +135,51 @@
         450,
         850
       ]
+    },
+    "2024-05-24": {
+      "image_size": [
+        1280,
+        960
+      ],
+      "image_p0": [
+        716,
+        307
+      ],
+      "image_p1": [
+        741,
+        358
+      ],
+      "image_p2": [
+        540,
+        358
+      ],
+      "image_p3": [
+        562,
+        312
+      ],
+      "ground_p0": [
+        675,
+        710
+      ],
+      "ground_p1": [
+        675,
+        789
+      ],
+      "ground_p2": [
+        595,
+        789
+      ],
+      "ground_p3": [
+        595,
+        710
+      ],
+      "matrix_path": "add_ins/perspective_matrix.pkl",
+      "cutoffs": [
+        320,
+        850,
+        320,
+        850
+      ]
     }
   },
   "model_info": {
@@ -147,7 +192,8 @@
     "x_anchors": 32,
     "y_anchors": 32,
     "max_lane_count": 3,
-    "checkpoint_path": "tmp/perspective-checkpoint4/",
-    "tflite_model_name": "model_cvat4.tflite"
+    "checkpoint_path": "tmp/hyper_lrs_model/",
+    "tflite_model_name": "models/tflite_models/model_w_bsize_64_4.tflite",
+    "keras_model_path": "models/keras_models/test_w_bsize_16_4.keras"
   }
 }

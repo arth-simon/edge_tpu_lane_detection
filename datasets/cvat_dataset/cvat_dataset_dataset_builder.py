@@ -11,21 +11,30 @@ import os
 import math
 import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
+from .new_interpol import get_cvat_lanes, to_bev_lanes_and_labels
 
 cnt_unique = 0
 
 imagecnt = 0
 
-CVAT_READER = True
+CVAT_READER = False
+
+
 class Builder(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for cvat_dataset dataset."""
 
-    VERSION = tfds.core.Version('1.4.5')
+    VERSION = tfds.core.Version('1.4.12')
     RELEASE_NOTES = {
-        '1.4.5': 'Potential fix for test set',
+        '1.4.9': 'reselected validation set',
+        '1.4.10': 'fixed cut off issue',
+        '1.4.11': 'expanded cutoffs',
+        '1.4.12': 'reverted cutoffs, added new interpolation method for lanes and labels, now read from cvat xml',
     }
 
     DRIVE = "C:" if os.name == "nt" else "/mnt/c"
+    CURRENT_FILE = os.path.abspath(__file__)
+    CURRENT_DIR = os.path.dirname(CURRENT_FILE)
+    PROJECT_DIR = os.path.split(CURRENT_DIR)[-2]
 
     def _info(self) -> tfds.core.DatasetInfo:
         """Returns the dataset metadata."""
@@ -49,9 +58,10 @@ class Builder(tfds.core.GeneratorBasedBuilder):
         path = f"{self.DRIVE}/Users/inf21034/source/IMG_ROOTS/1280x960_CVATROOT/"
         return {
             'train': self._generate_examples(os.path.join(path, "train_set"),
-                                             'train_set.json',
+                                             'train_set1.xml',
                                              [0.0, -15.0, 15.0, -30.0, 30.0]),
-            'test': self._generate_examples(os.path.join(path, "test_set"), 'test_set.json', None),
+            'validation': self._generate_examples(os.path.join(path, "validation_set"), 'validation_set1.xml', None),
+            'test': self._generate_examples(os.path.join(path, "test_set"), 'test_set1.xml', None),
         }
 
     def _generate_examples(self, path, label_data_name, augmentation_deg):
@@ -75,31 +85,37 @@ class Builder(tfds.core.GeneratorBasedBuilder):
             map_y_list = tf.constant(map_y_list)
             perspective_infos[date] = (H_list, map_x_list, map_y_list)
 
-        for image_ary, lanes_x_vals, lanes_y_vals, refIdx, day_of_recording in _data_reader(path, label_data_name,
-                                                                                              augmentation_deg):
-            # Generate a unique key for each example
-
-            # if "12" not in day_of_recording:
-            #     continue
-            # if "2023-10-02" not in day_of_recording and "test" not in label_data_name:
-            #     continue
+        # for image_ary, lanes_x_vals, lanes_y_vals, refIdx, day_of_recording in _data_reader(path, label_data_name,
+        #                                                                                       augmentation_deg):
+        #     # Generate a unique key for each example
+        #
+        #     # if "12" not in day_of_recording:
+        #     #     continue
+        #     # if "2023-10-02" not in day_of_recording and "test" not in label_data_name:
+        #     #     continue
+        #     key = cnt_unique
+        #     cnt_unique += 1
+        #     H_list, map_x_list, map_y_list = perspective_infos[day_of_recording]
+        #     cutoffs = config["perspective_info"][day_of_recording]["cutoffs"]
+        #     img, label = _map_projection_data_generator(image_ary,
+        #                                                 lanes_x_vals,
+        #                                                 lanes_y_vals,
+        #                                                 net_input_img_size,
+        #                                                 x_anchors,
+        #                                                 y_anchors,
+        #                                                 max_lane_count,
+        #                                                 H_list[refIdx],
+        #                                                 map_x_list[refIdx],
+        #                                                 map_y_list[refIdx],
+        #                                                 ground_img_size,
+        #                                                 cutoffs
+        #                                                 )
+        for lanes, image, day_of_recording, refIdx in get_cvat_lanes(label_data_name, path, augmentation_deg):
             key = cnt_unique
             cnt_unique += 1
             H_list, map_x_list, map_y_list = perspective_infos[day_of_recording]
             cutoffs = config["perspective_info"][day_of_recording]["cutoffs"]
-            img, label = _map_projection_data_generator(image_ary,
-                                                        lanes_x_vals,
-                                                        lanes_y_vals,
-                                                        net_input_img_size,
-                                                        x_anchors,
-                                                        y_anchors,
-                                                        max_lane_count,
-                                                        H_list[refIdx],
-                                                        map_x_list[refIdx],
-                                                        map_y_list[refIdx],
-                                                        ground_img_size,
-                                                        cutoffs
-                                                        )
+            img, label = to_bev_lanes_and_labels(lanes, image, net_input_img_size, cutoffs, H_list[refIdx])
             if img is None or label is None:
                 continue
             yield key, {
@@ -137,6 +153,12 @@ def _data_reader(dataset_path,
             with Image.open(image_path) as image:
                 image_ary = np.asarray(image)
 
+            if image_ary.shape[:2] != (960, 1280):
+                image_ary = cv2.resize(image_ary, (1280, 960))
+
+            if image_ary.shape == (960, 1280):
+                # extend dimension to (960, 1280, 3)
+                image_ary = np.stack((image_ary,) * 3, axis=-1)
             # enable this for small dataset test
             # if count >=32:
             #     break
@@ -376,7 +398,7 @@ def _map_projection_data_generator(src_image,
             bev_y = int(bev_y / gz)
             resized = _resize_transformed_labels((bev_x, bev_y),
                                                  (width, height),
-                                                 (400, 400),
+                                                 (r_c - l_c, d_c - u_c),
                                                  (net_input_img_size[0], net_input_img_size[1]),
                                                  cutoffs=cutoffs)
             if resized is None:
@@ -419,9 +441,9 @@ def _map_projection_data_generator(src_image,
                     normalized_direction_vec = (previous_point - current_point) / prev2curr_distance
 
                     inter_len = min(max(int(abs(prev_bev_y - bev_y)), 1), 10)
-                    for source_y in range(inter_len):
+                    for interp_step_y in range(inter_len):
                         interpolated_point = (current_point + normalized_direction_vec *
-                                              (float(source_y) / float(inter_len)) * prev2curr_distance)
+                                              (float(interp_step_y) / float(inter_len)) * prev2curr_distance)
 
                         x_anchor = np.int32(interpolated_point[0] * anchor_scale_x)
                         y_anchor = np.int32(interpolated_point[1] * anchor_scale_y)
