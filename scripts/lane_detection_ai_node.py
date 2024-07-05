@@ -46,7 +46,9 @@ class LaneDetectionAiNode(node_base.NodeBase):
 
         # Don't pass any parameter if no function should be called periodically.
         # This way it is in a spinning mode.
-        self.run()
+        #self.run()
+        self.start()
+        self.run_lane_detection()
 
     def start(self):
         """Gets called automatically by node_base.NodeBase when the node is started."""
@@ -56,12 +58,8 @@ class LaneDetectionAiNode(node_base.NodeBase):
             edge_tpu_lane_detection.msg.LaneDetectionResult,
             queue_size=1
         )
-
-        self.camera_image_subscriber = rospy.Subscriber(
-            self.param.camera_image_subscriber,
-            sensor_msgs.msg.Image,
-            callback=self.camera_image_cb,
-        )
+        
+        self.coord_trans = CoordinateTransform()
 
         # Only register publisher and subscriber if the debug is turned on
         if self.param.debug:
@@ -70,9 +68,18 @@ class LaneDetectionAiNode(node_base.NodeBase):
                 sensor_msgs.msg.Image,
                 queue_size=1
             )
+        
+        
+    def run_lane_detection(self):
+        while not rospy.is_shutdown():
+            camera_image_msg = rospy.wait_for_message(
+                topic=self.param.camera_image_subscriber,
+                topic_type=sensor_msgs.msg.Image,
+                timeout=5,
+            )
 
-        super().start()
-
+            self.camera_image_cb(camera_image_msg)
+            
     def stop(self):
         """Gets automatically called by node_base.NodeBase when the node is shut down."""
 
@@ -80,7 +87,6 @@ class LaneDetectionAiNode(node_base.NodeBase):
         # before shutting down.
         with suppress(AttributeError):
             self.result_publisher.unregister()
-            self.camera_image_subscriber.unregister()
 
             # Only unregister publisher if the debug was turned on
             if self.param.debug:
@@ -104,14 +110,20 @@ class LaneDetectionAiNode(node_base.NodeBase):
         with Timer(name="preprocess_image", filter_strength=40):
             camera_image = cv2.cvtColor(camera_image, cv2.COLOR_GRAY2RGB)
         with Timer(name="convertScaleAbs", filter_strength=40):
-            camera_image = cv2.convertScaleAbs(camera_image, alpha=4, beta=0.5)
+            camera_image = cv2.convertScaleAbs(camera_image, alpha=2, beta=0.5)
 
         # # Get result
         with Timer(name="prediction", filter_strength=40):
             result = self.model.predict(camera_image)
-            
-        left_lane, center_lane, right_lane = result
-            
+        
+        try:
+        #left_lane, center_lane, right_lane = result
+            left_lane = self.coord_trans.bird_to_world(result[0]) if len(result[0]) > 0 else np.asarray([])
+            right_lane = self.coord_trans.bird_to_world(result[2]) if len(result[2]) > 0 else np.asarray([])
+            center_lane = self.coord_trans.bird_to_world(result[1]) if len(result[1]) > 0 else np.asarray([])
+            # left_lane, center_lane, right_lane = [self.coord_trans.bird_to_world(lane) for lane in result if len(lane) > 0 else np.asarry([[]])]
+        except:
+            print(f"{result=}")    
         if self.param.active:
             left_lane_vec3s = [geometry_msgs.msg.Vector3(x=coord[0], y=coord[1], z=0.0) for coord in left_lane]
             center_lane_vec3s = [geometry_msgs.msg.Vector3(x=coord[0], y=coord[1], z=0.0) for coord in center_lane]
@@ -139,7 +151,7 @@ class LaneDetectionAiNode(node_base.NodeBase):
 
 
             
-        camera_image = self.model.preprocess_image(camera_image)
+        # camera_image = self.model.preprocess_image(camera_image)
 
         with Timer(name="debug_image", filter_strength=40):
             if self.param.debug:

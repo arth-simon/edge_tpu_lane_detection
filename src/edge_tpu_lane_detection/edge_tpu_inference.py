@@ -28,8 +28,8 @@ class EdgeTPUInference:
         # self.interpreter = tf.lite.Interpreter(model_path=str(tflite_model_quant_file),
         #                                   experimental_delegates=[tf.lite.experimental.load_delegate(
         #                                       "edgetpu.dll")])
-        self.interpreter = Interpreter(model_path=os.path.join(base_path, "models", self.config["model_info"]["tflite_model_name"]),
-                                       experimental_delegates=[load_delegate('libedgetpu.so.1')])
+        self.interpreter = Interpreter(model_path=os.path.join(base_path, "models", self.config["model_info"]["tflite_model_name"]), #),
+                                       experimental_delegates=[load_delegate('libedgetpu.so.1', options={"device":":1"})])#, options={"device":":0"}
         self.interpreter.allocate_tensors()
         self.own_path = os.path.dirname(os.path.abspath(__file__))
         self.anchor_axis = pickle.load(open(f"{self.own_path}/anchor_axis.pkl", "rb"))
@@ -67,7 +67,7 @@ class EdgeTPUInference:
         # else:
         #     image_prep = image_prep.astype(np.float32) / 255.0
         correctly_dimensioned_im = np.expand_dims(image_prep, axis=0)
-        print("Shape of input image: ", correctly_dimensioned_im.shape)
+        # print("Shape of input image: ", correctly_dimensioned_im.shape)
         self.interpreter.set_tensor(self.input_details[0]['index'], correctly_dimensioned_im)
         with Timer(name="Inference", filter_strength=40):
             self.interpreter.invoke()
@@ -82,12 +82,13 @@ class EdgeTPUInference:
         #lanes = self.postprocess(instance, offsets, anchor_axis)
 
         # only keep the int(config["max_lane_count"]) lanes with most points
-        max_lane_count = self.config["model_info"]["max_lane_count"]
-        sorted_lanes = sorted(lanes, key=lambda x: len(x), reverse=True)
-        lanes_list = sorted_lanes[:max_lane_count]
+        #max_lane_count = self.config["model_info"]["max_lane_count"]
+        #sorted_lanes = sorted(lanes, key=lambda x: len(x), reverse=True)
+        #lanes_list = sorted_lanes[:max_lane_count]
         # check which lane is left, center or right by checking each first coordinate and sorting from low to high
-        lanes_list = sorted(lanes_list, key=lambda x: x[0][0] if len(x) > 0 else 0)
-
+        #lanes_list = sorted(lanes_list, key=lambda x: x[0][0] if len(x) > 0 else 0)
+        print(f"{len(lanes[1])=} {len(lanes[5])=} {len(lanes[2])=} {len(lanes[3])=}")
+        lanes_list = lanes[2], lanes[4], lanes[0]
         # print(lanes_list)
         return lanes_list
 
@@ -157,8 +158,8 @@ class EdgeTPUInference:
                     gy_list = gy_filtered.numpy()
 
                     current_lane = np.stack((gx_list, gy_list), axis=-1)
-                    lanes[instanceIdx] = [self.prediction_to_coordinates(coord) for coord in current_lane]
-  
+                    current_lane = [self.prediction_to_coordinates(coord) for coord in current_lane]
+                    lanes[instanceIdx] = np.asarray(current_lane, dtype=np.int32)
         return lanes
 
     def prediction_to_coordinates(self, label):
@@ -169,10 +170,12 @@ class EdgeTPUInference:
         roi_width = xr - xl
         roi_height = yd - yu
         original_height, original_width, _ = self.original_shape
-        if xl < label[0] < xr and yu < label[1] < yd:
-            label = (label[0] - xl, label[1] - yu)
-        label = (int(label[0]),# * original_width // roi_width,
-                 int(label[1])) # * original_width // roi_height)
+        # if xl < label[0] < xr and yu < label[1] < yd:
+        label = (label[0] * (roi_width / 256), label[1] * (roi_height / 256))
+        label = (int(label[0] + xl ), 
+                     int(label[1]+ yu ))
+        
+        
         return label
 
 
